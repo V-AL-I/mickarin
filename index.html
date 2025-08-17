@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mandarin - Le Jeu</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div id="game-container">
+      <h1>Mandarin</h1>
+      <div id="board-container">
+        <div id="center-panel">
+          <h2>La Machine</h2>
+          <div id="machine-tiles"></div>
+          <div id="machine-controls">
+            <button id="take-tile-btn" class="hidden">
+              Prendre gratuitement
+            </button>
+            <button id="relaunch-btn" class="hidden">
+              Relancer le tourniquet
+            </button>
+          </div>
+        </div>
+        <div id="board"></div>
+      </div>
+      <div id="controls-panel">
+        <div id="current-player-info">
+          <h3 id="player-turn"></h3>
+          <p>Argent: <span id="player-money"></span></p>
+        </div>
+        <button id="roll-dice-btn">Lancer le dé</button>
+        <p id="dice-result"></p>
+        <div id="game-log">
+          <p>Bienvenue à Mandarin !</p>
+        </div>
+      </div>
+      <div id="players-panel"></div>
+    </div>
+
+    <!-- Modals -->
+    <div id="modal-backdrop" class="hidden"></div>
+
+    <div id="setup-modal" class="modal">
+      <h2>Configuration de la partie</h2>
+      <label for="player-count">Nombre de joueurs (2-8):</label>
+      <input type="number" id="player-count" min="2" max="8" value="2" />
+      <button id="setup-players-btn">Configurer les joueurs</button>
+
+      <div id="players-setup" class="hidden">
+        <h3>Informations des joueurs</h3>
+        <div id="players-inputs"></div>
+        <button id="start-game-btn">Commencer la partie</button>
+      </div>
+    </div>
+
+    <div id="auction-modal" class="modal hidden">
+      <h2>Enchères !</h2>
+      <p>Un lot de tuiles est mis aux enchères.</p>
+      <div id="auction-tiles"></div>
+      <p id="auction-info"></p>
+      <div class="auction-bid">
+        <label for="bid-amount">Votre offre :</label>
+        <input type="number" id="bid-amount" min="1" />
+        <button id="place-bid-btn">Enchérir</button>
+        <button id="pass-bid-btn">Passer</button>
+      </div>
+    </div>
+
+    <div id="steal-modal" class="modal hidden">
+      <h2>Dépassement !</h2>
+      <p>Vous avez dépassé un adversaire. Choisissez une tuile à lui voler.</p>
+      <div id="steal-options"></div>
+    </div>
+
+    <div id="winner-modal" class="modal hidden">
+      <h2 id="winner-message"></h2>
+      <button id="restart-game-btn">Rejouer</button>
+    </div>
+
+    <script src="script.js"></script>
+  </body>
+</html>
