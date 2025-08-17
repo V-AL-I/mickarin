@@ -245,26 +245,19 @@ document.addEventListener("DOMContentLoaded", () => {
   function createTileMachine() {
     tileMachine = [];
 
-    // Define animal-color mapping (same as board)
-    const animalColors = {
-      Chien: "#caffbf", // green
-      Dragon: "#caffbf", // green
-      Cochon: "#ffadad", // red
-      Serpent: "#ffadad", // red
-      Rat: "#9bf6ff", // blue
-      Cheval: "#9bf6ff", // blue
-      Buffle: "#ffb3ff", // pink
-      Chevre: "#ffb3ff", // pink
-      Singe: "#fdffb6", // yellow
-      Tigre: "#fdffb6", // yellow
-      Coq: "#a0c4ff", // purple
-      Chat: "#a0c4ff", // purple
-    };
+    // Define the 6 base colors for tiles
+    const tileColors = [
+      "#ffadad", // red
+      "#ffd6a5", // orange
+      "#fdffb6", // yellow
+      "#caffbf", // green
+      "#9bf6ff", // blue
+      "#a0c4ff", // purple
+    ];
 
+    // Create one tile for each animal-color combination
     for (const sign of SIGNS) {
-      const color = animalColors[sign];
-      // Create multiple tiles of each animal (adjust number as needed)
-      for (let i = 0; i < 6; i++) {
+      for (const color of tileColors) {
         tileMachine.push(new Tile(sign, color));
       }
     }
@@ -274,6 +267,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const j = Math.floor(Math.random() * (i + 1));
       [tileMachine[i], tileMachine[j]] = [tileMachine[j], tileMachine[i]];
     }
+
+    console.log(`Machine créée avec ${tileMachine.length} tuiles`); // Should be 72 tiles
   }
 
   function createBoard() {
@@ -382,38 +377,72 @@ document.addEventListener("DOMContentLoaded", () => {
     movePlayer(diceRoll);
   }
 
-  function movePlayer(steps) {
+  function movePlayer(steps, isSecondRoll = false) {
     const player = players[currentPlayerIndex];
     const oldPosition = player.position;
     player.position = (player.position + steps) % BOARD_SIZE;
     updatePawnPosition(player);
 
-    // Check for overtaking
-    players.forEach((otherPlayer) => {
-      if (otherPlayer !== player) {
-        const passed =
-          (oldPosition < otherPlayer.position &&
-            player.position >= otherPlayer.position) ||
-          (oldPosition > player.position &&
-            (oldPosition < otherPlayer.position ||
-              player.position >= otherPlayer.position));
-        if (passed) {
-          logMessage(`${player.name} a dépassé ${otherPlayer.name} !`);
-          handleSteal(player, otherPlayer);
-        }
-      }
-    });
+    let overtakenPlayers = [];
 
-    // Handle landing on cell after a delay
-    setTimeout(handleCellAction, 1000);
+    // Check for overtaking (only on first roll)
+    if (!isSecondRoll) {
+      players.forEach((otherPlayer) => {
+        if (otherPlayer !== player) {
+          const passed =
+            (oldPosition < otherPlayer.position &&
+              player.position >= otherPlayer.position) ||
+            (oldPosition > player.position &&
+              (oldPosition < otherPlayer.position ||
+                player.position >= otherPlayer.position));
+          if (passed) {
+            overtakenPlayers.push(otherPlayer);
+          }
+        }
+      });
+    }
+
+    // Handle overtaking
+    if (overtakenPlayers.length > 0) {
+      logMessage(
+        `${player.name} a dépassé ${overtakenPlayers
+          .map((p) => p.name)
+          .join(", ")} !`
+      );
+
+      // Steal from each overtaken player
+      overtakenPlayers.forEach((victim) => {
+        handleSteal(player, victim);
+      });
+
+      // Roll again after stealing
+      setTimeout(() => {
+        logMessage(
+          `${player.name} relance le dé après avoir dépassé des joueurs.`
+        );
+        rollDiceBtn.disabled = false;
+        rollDiceBtn.onclick = () => {
+          rollDiceBtn.disabled = true;
+          const secondRoll = Math.floor(Math.random() * 6) + 1;
+          diceResultEl.textContent = `Résultat (2ème lancer) : ${secondRoll}`;
+          logMessage(
+            `${player.name} a fait un ${secondRoll} au second lancer.`
+          );
+          movePlayer(secondRoll, true); // Second roll
+        };
+      }, 2000);
+    } else {
+      // No overtaking, handle normal cell action
+      setTimeout(() => handleCellAction(isSecondRoll), 1000);
+    }
   }
 
-  function handleCellAction() {
+  function handleCellAction(isSecondRoll = false) {
     const player = players[currentPlayerIndex];
     const cell = document.querySelector(`.cell[data-id='${player.position}']`);
     const cellType = cell.dataset.type;
 
-    // Check for rent
+    // Check for rent (always applies)
     const cellSign = cell.dataset.sign;
     if (cellSign) {
       const owner = players.find(
@@ -431,19 +460,52 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
 
-    if (cellType === "money") {
+    // Handle cell effects (no money or machine on second roll)
+    if (cellType === "money" && !isSecondRoll) {
       const amount = 100;
       player.money += amount;
       logMessage(`${player.name} gagne ${amount}€.`);
       player.updatePlayerInfo();
       endTurn();
-    } else if (cellType === "color") {
+    } else if (cellType === "color" && !isSecondRoll) {
       logMessage(`${player.name} atterrit sur une case colorée.`);
       startMachineProcess();
     } else {
-      // Start/other cells
+      // Start/other cells or second roll - just end turn
+      if (isSecondRoll) {
+        logMessage(`${player.name} termine son tour (second lancer).`);
+      }
       endTurn();
     }
+  }
+
+  // Modified handleSteal to work with multiple victims
+  function handleSteal(thief, victim) {
+    if (victim.tiles.length === 0) {
+      logMessage(`${victim.name} n'a pas de tuiles à voler.`);
+      return;
+    }
+
+    // For multiple overtaking, automatically steal the first tile
+    const stolenTile = victim.tiles[0];
+    logMessage(
+      `${thief.name} vole une tuile ${stolenTile.sign} à ${victim.name}.`
+    );
+    victim.removeTile(stolenTile);
+    thief.addTile(stolenTile);
+  }
+
+  // Reset the roll dice button onclick for normal rolls
+  function startTurn() {
+    const currentPlayer = players[currentPlayerIndex];
+    logMessage(`C'est au tour de ${currentPlayer.name}.`);
+    playerTurnEl.textContent = `Tour de: ${currentPlayer.name}`;
+    playerMoneyEl.textContent = `${currentPlayer.money}€`;
+    rollDiceBtn.disabled = false;
+    diceResultEl.textContent = "";
+
+    // Reset to normal roll behavior
+    rollDiceBtn.onclick = rollDice;
   }
 
   // --- LOGIQUE DE LA MACHINE ---
