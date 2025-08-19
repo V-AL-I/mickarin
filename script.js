@@ -674,9 +674,39 @@ document.addEventListener("DOMContentLoaded", () => {
   function movePlayer(steps, isSecondRoll = false) {
     const player = players[currentPlayerIndex];
     const oldPosition = player.position;
-    player.position = (player.position + steps) % BOARD_SIZE;
-    updatePawnPosition(player);
 
+    // Disable dice button during movement
+    rollDiceBtn.disabled = true;
+
+    // Calculate the path of movement
+    const movementPath = [];
+    for (let i = 1; i <= steps; i++) {
+      movementPath.push((oldPosition + i) % BOARD_SIZE);
+    }
+
+    // Animate movement through each position
+    let currentStep = 0;
+
+    function animateStep() {
+      if (currentStep < movementPath.length) {
+        player.position = movementPath[currentStep];
+        updatePawnPosition(player);
+        currentStep++;
+
+        // Continue to next step after 200ms
+        setTimeout(animateStep, 400);
+      } else {
+        // Movement complete, handle game logic
+        handleMovementComplete(oldPosition, isSecondRoll);
+      }
+    }
+
+    // Start the animation
+    animateStep();
+  }
+
+  function handleMovementComplete(oldPosition, isSecondRoll) {
+    const player = players[currentPlayerIndex];
     let overtakenPlayers = [];
 
     // Check for overtaking (only on first roll)
@@ -709,6 +739,7 @@ document.addEventListener("DOMContentLoaded", () => {
         handleSteal(player, victim);
       });
 
+      // Roll again after stealing - no cell action
       setTimeout(() => {
         logMessage(
           `${player.name} relance le dé après avoir dépassé des joueurs.`
@@ -725,10 +756,10 @@ document.addEventListener("DOMContentLoaded", () => {
           // Reset to normal roll behavior after second roll
           rollDiceBtn.onclick = rollDice;
         };
-      }, 2000);
+      }, 500); // Small delay after movement animation
     } else {
       // No overtaking, handle normal cell action
-      setTimeout(() => handleCellAction(isSecondRoll), 1000);
+      setTimeout(() => handleCellAction(isSecondRoll), 500);
     }
   }
 
