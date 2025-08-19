@@ -593,7 +593,9 @@ document.addEventListener("DOMContentLoaded", () => {
     }. Enchère actuelle: ${highestBid}€ par ${
       highestBidder ? highestBidder.name : "personne"
     }.`;
-    auctionModal.querySelector("#bid-amount").value = highestBid + 1;
+    auctionModal.querySelector("#bid-amount").value = highestBid + 100;
+    auctionModal.querySelector("#bid-amount").min = highestBid + 100;
+    auctionModal.querySelector("#bid-amount").step = 100;
     auctionModal.querySelector("#bid-amount").max = bidder.money;
   }
 
@@ -606,14 +608,20 @@ document.addEventListener("DOMContentLoaded", () => {
       auctionPasses++;
     } else {
       const amount = parseInt(auctionModal.querySelector("#bid-amount").value);
-      if (amount > highestBid && amount <= bidder.money) {
+      const minimumBid = highestBid + 100;
+
+      if (
+        amount >= minimumBid &&
+        amount <= bidder.money &&
+        amount % 100 === 0
+      ) {
         highestBid = amount;
         highestBidder = bidder;
         logMessage(`${bidder.name} enchérit à ${amount}€.`);
         auctionPasses = 0; // Reset passes on a new bid
       } else {
         alert(
-          "Votre offre doit être supérieure à l'enchère actuelle et dans les limites de votre argent."
+          `Votre offre doit être d'au moins ${minimumBid}€, par paliers de 100€, et dans les limites de votre argent.`
         );
         return;
       }
