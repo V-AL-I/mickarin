@@ -29,3 +29,30 @@ export class Tile {
     );
   }
 }
+
+// Helper function to create tile DOM elements with images
+export function createTileElement(tile, faceUp = true) {
+  const tileDiv = document.createElement("div");
+  tileDiv.className = "tile";
+
+  // Always set the background color
+  tileDiv.style.backgroundColor = tile.color;
+
+  if (faceUp) {
+    tileDiv.style.backgroundImage = `url('${tile.imagePath}')`;
+    tileDiv.title = tile.sign;
+    // Fallback text if image doesn't load
+    tileDiv.textContent = tile.sign.substring(0, 1);
+
+    // Add special outline if it's a special tile and face up
+    if (tile.isSpecial) {
+      tileDiv.classList.add("special-tile");
+    }
+  } else {
+    tileDiv.classList.add("face-down");
+    // No image or text for face-down tiles, just the color
+    // Special outline is NOT shown when face down
+  }
+
+  return tileDiv;
+}

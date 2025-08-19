@@ -1,32 +1,19 @@
 import { Player } from "./src/player.js";
-import { Tile } from "./src/tile.js";
+import { Tile, createTileElement } from "./src/tile.js";
+import {
+  SIGNS,
+  RED,
+  YELLOW,
+  GREEN,
+  BLUE,
+  PINK,
+  PURPLE,
+  BOARD_SIZE,
+} from "./src/const.js";
+import { createTileMachine } from "./src/game.js";
 
 document.addEventListener("DOMContentLoaded", () => {
   // --- CONSTANTES ET CONFIGURATION ---
-  const SIGNS = [
-    "Singe",
-    "Coq",
-    "Chien",
-    "Cochon",
-    "Rat",
-    "Buffle",
-    "Tigre",
-    "Chat",
-    "Dragon",
-    "Serpent",
-    "Cheval",
-    "Chevre",
-  ];
-
-  const RED = "#b81425";
-  const YELLOW = "#ffd000";
-  const GREEN = "#2c8c27";
-  const BLUE = "#1175f7";
-  const PINK = "#de4ed9";
-  const PURPLE = "#732da8";
-
-  const BOARD_SIZE = 36; // 10x10 grid perimeter minus corners = 36 cells
-  const STARTING_MONEY = 2500;
 
   // --- VARIABLES D'ÉTAT DU JEU ---
   let players = [];
@@ -66,35 +53,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const sellTotalEl = document.getElementById("sell-total");
   const confirmSellBtn = document.getElementById("confirm-sell-btn");
   const cancelSellBtn = document.getElementById("cancel-sell-btn");
-
-  // --- CLASSES DU JEU ---
-
-  // Helper function to create tile DOM elements with images
-  function createTileElement(tile, faceUp = true) {
-    const tileDiv = document.createElement("div");
-    tileDiv.className = "tile";
-
-    // Always set the background color
-    tileDiv.style.backgroundColor = tile.color;
-
-    if (faceUp) {
-      tileDiv.style.backgroundImage = `url('${tile.imagePath}')`;
-      tileDiv.title = tile.sign;
-      // Fallback text if image doesn't load
-      tileDiv.textContent = tile.sign.substring(0, 1);
-
-      // Add special outline if it's a special tile and face up
-      if (tile.isSpecial) {
-        tileDiv.classList.add("special-tile");
-      }
-    } else {
-      tileDiv.classList.add("face-down");
-      // No image or text for face-down tiles, just the color
-      // Special outline is NOT shown when face down
-    }
-
-    return tileDiv;
-  }
 
   // --- CONFIGURATION DES JOUEURS ---
   function setupPlayerInputs() {
@@ -200,7 +158,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!validateAndCreatePlayers()) {
       return;
     }
-
     createBoard();
     createTileMachine();
     setupUI();
@@ -208,35 +165,6 @@ document.addEventListener("DOMContentLoaded", () => {
     currentPlayerIndex = 0;
     hideModal(setupModal);
     startTurn();
-  }
-
-  function createTileMachine() {
-    tileMachine = [];
-
-    // Define the 6 base colors for tiles
-    const tileColors = [
-      RED, // red
-      PINK, // orange
-      YELLOW, // yellow
-      GREEN, // green
-      BLUE, // blue
-      PURPLE, // purple
-    ];
-
-    // Create one tile for each animal-color combination
-    for (const sign of SIGNS) {
-      for (const color of tileColors) {
-        tileMachine.push(new Tile(sign, color));
-      }
-    }
-
-    // Shuffle the machine
-    for (let i = tileMachine.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [tileMachine[i], tileMachine[j]] = [tileMachine[j], tileMachine[i]];
-    }
-
-    console.log(`Machine créée avec ${tileMachine.length} tuiles`); // Should be 72 tiles
   }
 
   function createBoard() {
