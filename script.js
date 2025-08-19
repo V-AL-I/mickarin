@@ -431,12 +431,18 @@ document.addEventListener("DOMContentLoaded", () => {
         `.player-collection-tile[data-player-id="${player.id}"]`
       );
 
+      // Debug log to see if tiles are found
+      console.log(
+        `Player ${player.name} (ID: ${player.id}) has ${playerCollectionTiles.length} collection tiles`
+      );
+
       // Reset all tiles to low opacity for this player
       playerCollectionTiles.forEach((tile) => {
         tile.classList.remove("owned");
         tile.style.border = tile.classList.contains("special-tile")
-          ? "3px dotted gold"
+          ? "2px dotted gold"
           : "1px solid #333";
+        tile.style.boxShadow = "";
       });
 
       // Mark owned tiles for this player
@@ -444,13 +450,19 @@ document.addEventListener("DOMContentLoaded", () => {
         const matchingTile = document.querySelector(
           `.player-collection-tile[data-player-id="${player.id}"][data-sign="${playerTile.sign}"][data-color="${playerTile.color}"]`
         );
+
+        console.log(
+          `Looking for tile: ${playerTile.sign} ${playerTile.color} for player ${player.id}`,
+          matchingTile
+        );
+
         if (matchingTile) {
           matchingTile.classList.add("owned");
           // Add player color border
           matchingTile.style.border = `2px solid ${player.color}`;
           // Keep special tile gold border if it's special
           if (matchingTile.classList.contains("special-tile")) {
-            matchingTile.style.border = `3px dotted gold`;
+            matchingTile.style.border = `2px dotted gold`;
             matchingTile.style.boxShadow = `0 0 3px rgba(255, 215, 0, 0.8), 0 0 0 1px ${player.color}`;
           }
         }
@@ -466,6 +478,10 @@ document.addEventListener("DOMContentLoaded", () => {
     playerMoneyEl.textContent = `${currentPlayer.money}€`;
     rollDiceBtn.disabled = false;
     diceResultEl.textContent = "";
+
+    // Remove any existing event listeners and set to normal roll behavior
+    rollDiceBtn.onclick = null;
+    rollDiceBtn.onclick = rollDice;
   }
 
   function endTurn() {
@@ -522,7 +538,6 @@ document.addEventListener("DOMContentLoaded", () => {
         handleSteal(player, victim);
       });
 
-      // Roll again after stealing
       setTimeout(() => {
         logMessage(
           `${player.name} relance le dé après avoir dépassé des joueurs.`
@@ -536,6 +551,8 @@ document.addEventListener("DOMContentLoaded", () => {
             `${player.name} a fait un ${secondRoll} au second lancer.`
           );
           movePlayer(secondRoll, true); // Second roll
+          // Reset to normal roll behavior after second roll
+          rollDiceBtn.onclick = rollDice;
         };
       }, 2000);
     } else {
@@ -567,7 +584,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
 
-    // Handle cell effects (no money or machine on second roll)
+    // Handle cell effects (no money or machine on second roll after overtaking)
     if (cellType === "money" && !isSecondRoll) {
       const amount = 100;
       player.money += amount;
@@ -578,41 +595,45 @@ document.addEventListener("DOMContentLoaded", () => {
       logMessage(`${player.name} atterrit sur une case colorée.`);
       startMachineProcess();
     } else {
-      // Start/other cells or second roll - just end turn
+      // Start/other cells or second roll after overtaking - just end turn
       if (isSecondRoll) {
-        logMessage(`${player.name} termine son tour (second lancer).`);
+        logMessage(
+          `${player.name} termine son tour (second lancer après dépassement).`
+        );
       }
-      endTurn();
+      endTurn(); // Add missing parentheses here
     }
   }
 
-  // Modified handleSteal to work with multiple victims
   function handleSteal(thief, victim) {
     if (victim.tiles.length === 0) {
       logMessage(`${victim.name} n'a pas de tuiles à voler.`);
       return;
     }
 
-    // For multiple overtaking, automatically steal the first tile
-    const stolenTile = victim.tiles[0];
-    logMessage(
-      `${thief.name} vole une tuile ${stolenTile.sign} à ${victim.name}.`
-    );
-    victim.removeTile(stolenTile);
-    thief.addTile(stolenTile);
-  }
+    // Show steal modal with tile choices
+    stealModal.querySelector(
+      "#steal-info"
+    ).textContent = `${thief.name}, choisissez une tuile à voler à ${victim.name}:`;
 
-  // Reset the roll dice button onclick for normal rolls
-  function startTurn() {
-    const currentPlayer = players[currentPlayerIndex];
-    logMessage(`C'est au tour de ${currentPlayer.name}.`);
-    playerTurnEl.textContent = `Tour de: ${currentPlayer.name}`;
-    playerMoneyEl.textContent = `${currentPlayer.money}€`;
-    rollDiceBtn.disabled = false;
-    diceResultEl.textContent = "";
+    const stealOptions = stealModal.querySelector("#steal-options");
+    stealOptions.innerHTML = "";
 
-    // Reset to normal roll behavior
-    rollDiceBtn.onclick = rollDice;
+    victim.tiles.forEach((tile) => {
+      const tileDiv = createTileElement(tile);
+      tileDiv.style.cursor = "pointer";
+      tileDiv.onclick = () => {
+        logMessage(
+          `${thief.name} vole une tuile ${tile.sign} à ${victim.name}.`
+        );
+        victim.removeTile(tile);
+        thief.addTile(tile);
+        hideModal(stealModal);
+      };
+      stealOptions.appendChild(tileDiv);
+    });
+
+    showModal(stealModal);
   }
 
   // --- LOGIQUE DE LA MACHINE ---
@@ -663,13 +684,16 @@ document.addEventListener("DOMContentLoaded", () => {
     currentBidderIndex,
     highestBid,
     highestBidder,
-    auctionPasses;
+    auctionPasses,
+    initialBidderMadeBid;
+
   function startAuction() {
     auctionBidders = [...players];
-    currentBidderIndex = currentPlayerIndex;
-    highestBid = 100;
-    highestBidder = auctionBidders[currentBidderIndex];
+    currentBidderIndex = currentPlayerIndex; // Start with the player who pulled the tiles
+    highestBid = 0;
+    highestBidder = null;
     auctionPasses = 0;
+    initialBidderMadeBid = false;
 
     auctionModal.querySelector("#auction-tiles").innerHTML = "";
     machineOffer.forEach((offer) => {
@@ -695,27 +719,60 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    auctionModal.querySelector("#auction-info").textContent = `Au tour de ${
-      bidder.name
-    }. Enchère actuelle: ${highestBid}€ par ${
-      highestBidder ? highestBidder.name : "personne"
-    }.`;
-    auctionModal.querySelector("#bid-amount").value = highestBid + 100;
-    auctionModal.querySelector("#bid-amount").min = highestBid + 100;
+    const isInitialBidder =
+      currentBidderIndex === currentPlayerIndex && !initialBidderMadeBid;
+    const minimumBid = Math.max(highestBid + 100, 100);
+
+    if (isInitialBidder) {
+      // First bidder (who pulled the tiles) must bid at least 100€ if they can afford it
+      if (bidder.money >= 100) {
+        auctionModal.querySelector(
+          "#auction-info"
+        ).textContent = `${bidder.name}, vous avez tiré les tuiles. Vous devez faire une enchère d'au moins 100€.`;
+        auctionModal.querySelector("#bid-amount").value = 100;
+        auctionModal.querySelector("#bid-amount").min = 100;
+        auctionModal.querySelector("#pass-bid-btn").disabled = true; // Can't pass on first bid if they have money
+      } else {
+        auctionModal.querySelector(
+          "#auction-info"
+        ).textContent = `${bidder.name}, vous avez tiré les tuiles mais n'avez pas assez d'argent pour enchérir.`;
+        auctionModal.querySelector("#pass-bid-btn").disabled = false;
+      }
+    } else {
+      auctionModal.querySelector("#auction-info").textContent = `Au tour de ${
+        bidder.name
+      }. Enchère actuelle: ${highestBid}€ par ${
+        highestBidder ? highestBidder.name : "personne"
+      }.`;
+      auctionModal.querySelector("#bid-amount").value = minimumBid;
+      auctionModal.querySelector("#bid-amount").min = minimumBid;
+      auctionModal.querySelector("#pass-bid-btn").disabled = false;
+    }
+
     auctionModal.querySelector("#bid-amount").step = 100;
     auctionModal.querySelector("#bid-amount").max = bidder.money;
   }
 
   function handleBid(pass = false) {
     const bidder = auctionBidders[currentBidderIndex];
+    const isInitialBidder =
+      currentBidderIndex === currentPlayerIndex && !initialBidderMadeBid;
 
     if (pass) {
+      // Check if initial bidder is trying to pass without money
+      if (isInitialBidder && bidder.money >= 100) {
+        alert(
+          "Vous devez faire une enchère d'au moins 100€ car vous avez tiré les tuiles."
+        );
+        return;
+      }
+
       logMessage(`${bidder.name} passe son tour.`);
       auctionBidders[currentBidderIndex] = null; // Mark as passed
       auctionPasses++;
     } else {
       const amount = parseInt(auctionModal.querySelector("#bid-amount").value);
-      const minimumBid = highestBid + 100;
+      const minimumBid = isInitialBidder ? 100 : highestBid + 100;
 
       if (
         amount >= minimumBid &&
@@ -726,12 +783,21 @@ document.addEventListener("DOMContentLoaded", () => {
         highestBidder = bidder;
         logMessage(`${bidder.name} enchérit à ${amount}€.`);
         auctionPasses = 0; // Reset passes on a new bid
+
+        if (isInitialBidder) {
+          initialBidderMadeBid = true;
+        }
       } else {
         alert(
           `Votre offre doit être d'au moins ${minimumBid}€, par paliers de 100€, et dans les limites de votre argent.`
         );
         return;
       }
+    }
+
+    // Mark initial bidder as having made their mandatory bid if they passed (only if no money)
+    if (isInitialBidder) {
+      initialBidderMadeBid = true;
     }
 
     currentBidderIndex = (currentBidderIndex + 1) % players.length;
@@ -754,32 +820,6 @@ document.addEventListener("DOMContentLoaded", () => {
     machineOffer = [];
     updateMachineUI();
     endTurn();
-  }
-
-  // --- VOL DE TUILES ---
-  function handleSteal(thief, victim) {
-    if (victim.tiles.length === 0) {
-      logMessage(`${victim.name} n'a pas de tuiles à voler.`);
-      return;
-    }
-
-    const stealOptions = stealModal.querySelector("#steal-options");
-    stealOptions.innerHTML = "";
-
-    victim.tiles.forEach((tile) => {
-      const tileDiv = createTileElement(tile);
-      tileDiv.onclick = () => {
-        logMessage(
-          `${thief.name} vole une tuile ${tile.sign} à ${victim.name}.`
-        );
-        victim.removeTile(tile);
-        thief.addTile(tile);
-        hideModal(stealModal);
-      };
-      stealOptions.appendChild(tileDiv);
-    });
-
-    showModal(stealModal);
   }
 
   // --- VÉRIFICATION DE VICTOIRE ---
@@ -862,7 +902,6 @@ document.addEventListener("DOMContentLoaded", () => {
   // --- ÉVÉNEMENTS ---
   setupPlayersBtn.addEventListener("click", setupPlayerInputs);
   startGameBtn.addEventListener("click", initializeGame);
-  rollDiceBtn.addEventListener("click", rollDice);
   takeTileBtn.addEventListener("click", playerTakesTiles);
   relaunchBtn.addEventListener("click", drawFromMachine);
 
