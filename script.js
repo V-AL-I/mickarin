@@ -1,3 +1,6 @@
+import { Player } from "./src/player.js";
+import { Tile } from "./src/tile.js";
+
 document.addEventListener("DOMContentLoaded", () => {
   // --- CONSTANTES ET CONFIGURATION ---
   const SIGNS = [
@@ -65,83 +68,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const cancelSellBtn = document.getElementById("cancel-sell-btn");
 
   // --- CLASSES DU JEU ---
-  class Player {
-    constructor(id, name, color, yob) {
-      this.id = id;
-      this.name = name;
-      this.color = color;
-      this.yob = yob;
-      this.money = STARTING_MONEY;
-      this.position = this.getStartingPosition(yob);
-      this.tiles = [];
-      this.pawn = null;
-      this.infoEl = null;
-      this.collectionEl = null;
-    }
-
-    getStartingPosition(yob) {
-      return (yob % 12) * 3;
-    }
-
-    addTile(tile) {
-      this.tiles.push(tile);
-      this.updatePlayerInfo();
-      updatePlayerTileCollections(); // Update collection display
-
-      if (gameInProgress && checkForWinner(this)) {
-        return; // Game has ended, stop processing
-      }
-    }
-
-    removeTile(tileToRemove) {
-      this.tiles = this.tiles.filter((tile) => tile !== tileToRemove);
-      this.updatePlayerInfo();
-      updatePlayerTileCollections(); // Update collection display
-    }
-
-    getOwnedSigns() {
-      const signCounts = this.tiles.reduce((acc, tile) => {
-        acc[tile.sign] = (acc[tile.sign] || 0) + 1;
-        return acc;
-      }, {});
-      return Object.keys(signCounts).filter((sign) => signCounts[sign] >= 3);
-    }
-
-    updatePlayerInfo() {
-      if (!this.infoEl) return;
-      this.infoEl.querySelector(".money").textContent = this.money;
-    }
-  }
-
-  class Tile {
-    constructor(sign, color) {
-      this.sign = sign;
-      this.color = color;
-      this.imagePath = `images/${sign}.png`; // Path to the PNG file
-      this.isSpecial = this.checkIfSpecial(sign, color);
-    }
-
-    checkIfSpecial(sign, color) {
-      const specialTiles = [
-        { sign: "Dragon", color: GREEN }, // green
-        { sign: "Chien", color: GREEN }, // green
-        { sign: "Chevre", color: PINK }, // pink
-        { sign: "Buffle", color: PINK }, // pink
-        { sign: "Singe", color: YELLOW }, // yellow
-        { sign: "Tigre", color: YELLOW }, // yellow
-        { sign: "Rat", color: BLUE }, // blue
-        { sign: "Cheval", color: BLUE }, // blue
-        { sign: "Cochon", color: RED }, // red
-        { sign: "Serpent", color: RED }, // red
-        { sign: "Chat", color: PURPLE }, // purple
-        { sign: "Coq", color: PURPLE }, // purple
-      ];
-
-      return specialTiles.some(
-        (special) => special.sign === sign && special.color === color
-      );
-    }
-  }
 
   // Helper function to create tile DOM elements with images
   function createTileElement(tile, faceUp = true) {
@@ -256,7 +182,14 @@ document.addEventListener("DOMContentLoaded", () => {
     // Create players
     players = [];
     playerData.forEach((data, i) => {
-      players.push(new Player(i, data.name, data.color, data.yob));
+      const gameCallbacks = {
+        updatePlayerTileCollections,
+        checkForWinner,
+        gameInProgress: () => gameInProgress,
+      };
+      players.push(
+        new Player(i, data.name, data.color, data.yob, gameCallbacks)
+      );
     });
 
     return true;
