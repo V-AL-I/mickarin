@@ -81,6 +81,10 @@ document.addEventListener("DOMContentLoaded", () => {
       this.tiles.push(tile);
       this.updatePlayerInfo();
       updatePlayerTileCollections(); // Update collection display
+
+      if (gameInProgress && checkForWinner(this)) {
+        return; // Game has ended, stop processing
+      }
     }
 
     removeTile(tileToRemove) {
@@ -113,18 +117,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
     checkIfSpecial(sign, color) {
       const specialTiles = [
-        { sign: "Dragon", color: "#2c8c27" }, // green
-        { sign: "Chien", color: "#2c8c27" }, // green
-        { sign: "Chevre", color: "#ffb3ff" }, // pink
-        { sign: "Buffle", color: "#ffb3ff" }, // pink
-        { sign: "Singe", color: "#fdffb6" }, // yellow
-        { sign: "Tigre", color: "#fdffb6" }, // yellow
-        { sign: "Rat", color: "#1175f7" }, // blue
-        { sign: "Cheval", color: "#1175f7" }, // blue
-        { sign: "Cochon", color: "#ffadad" }, // red
-        { sign: "Serpent", color: "#ffadad" }, // red
-        { sign: "Chat", color: "#732da8" }, // purple
-        { sign: "Coq", color: "#732da8" }, // purple
+        { sign: "Dragon", color: GREEN }, // green
+        { sign: "Chien", color: GREEN }, // green
+        { sign: "Chevre", color: PINK }, // pink
+        { sign: "Buffle", color: PINK }, // pink
+        { sign: "Singe", color: YELLOW }, // yellow
+        { sign: "Tigre", color: YELLOW }, // yellow
+        { sign: "Rat", color: BLUE }, // blue
+        { sign: "Cheval", color: BLUE }, // blue
+        { sign: "Cochon", color: RED }, // red
+        { sign: "Serpent", color: RED }, // red
+        { sign: "Chat", color: PURPLE }, // purple
+        { sign: "Coq", color: PURPLE }, // purple
       ];
 
       return specialTiles.some(
@@ -399,12 +403,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Define the order as specified
     const colorOrder = [
-      "#1175f7",
-      "#ffb3ff",
-      "#fdffb6",
-      "#732da8",
-      "#2c8c27",
-      "#ffadad",
+      BLUE, // "#1175f7"
+      PINK, // "#de4ed9"
+      YELLOW, // "#ffd000"
+      PURPLE, // "#732da8"
+      GREEN, // "#2c8c27"
+      RED, // "#b81425"
     ]; // blue, pink, yellow, purple, green, red
     const signOrder = [
       "Rat",
@@ -499,8 +503,6 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function endTurn() {
-    if (checkForWinner(players[currentPlayerIndex])) return;
-
     currentPlayerIndex = (currentPlayerIndex + 1) % players.length;
     startTurn();
   }
@@ -697,15 +699,36 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function playerTakesTiles() {
     const player = players[currentPlayerIndex];
-    machineOffer.forEach((offer) => player.addTile(offer.tile));
-    logMessage(
-      `${player.name} prend ${machineOffer.length} tuile(s) gratuitement.`
-    );
-    hideMachineControls();
-    machineOffer = [];
-    updateMachineUI();
-    player.updatePlayerInfo();
-    endTurn();
+
+    // Check if there are any face-down tiles to reveal
+    const faceDownTiles = machineOffer.filter((offer) => !offer.faceUp);
+
+    if (faceDownTiles.length > 0) {
+      // Show face-down tiles before taking them
+      revealFaceDownTiles(faceDownTiles, () => {
+        // After revealing, add all tiles to player
+        machineOffer.forEach((offer) => player.addTile(offer.tile));
+        logMessage(
+          `${player.name} prend ${machineOffer.length} tuile(s) gratuitement.`
+        );
+        hideMachineControls();
+        machineOffer = [];
+        updateMachineUI();
+        player.updatePlayerInfo();
+        endTurn();
+      });
+    } else {
+      // No face-down tiles, proceed normally
+      machineOffer.forEach((offer) => player.addTile(offer.tile));
+      logMessage(
+        `${player.name} prend ${machineOffer.length} tuile(s) gratuitement.`
+      );
+      hideMachineControls();
+      machineOffer = [];
+      updateMachineUI();
+      player.updatePlayerInfo();
+      endTurn();
+    }
   }
 
   // --- ENCHÈRES ---
@@ -839,16 +862,71 @@ document.addEventListener("DOMContentLoaded", () => {
         `${highestBidder.name} remporte l'enchère pour ${highestBid}€.`
       );
       highestBidder.money -= highestBid;
-      machineOffer.forEach((offer) => highestBidder.addTile(offer.tile));
-      highestBidder.updatePlayerInfo();
+
+      // Check if there are any face-down tiles to reveal
+      const faceDownTiles = machineOffer.filter((offer) => !offer.faceUp);
+
+      if (faceDownTiles.length > 0) {
+        // Show face-down tiles before giving them to winner
+        revealFaceDownTiles(faceDownTiles, () => {
+          // After revealing, add all tiles to winner
+          machineOffer.forEach((offer) => highestBidder.addTile(offer.tile));
+          highestBidder.updatePlayerInfo();
+          hideModal(auctionModal);
+          machineOffer = [];
+          updateMachineUI();
+          endTurn();
+        });
+      } else {
+        // No face-down tiles, proceed normally
+        machineOffer.forEach((offer) => highestBidder.addTile(offer.tile));
+        highestBidder.updatePlayerInfo();
+        hideModal(auctionModal);
+        machineOffer = [];
+        updateMachineUI();
+        endTurn();
+      }
     } else {
       logMessage("Personne n'a enchéri. Les tuiles sont défaussées.");
+      hideModal(auctionModal);
+      machineOffer = [];
+      updateMachineUI();
+      endTurn();
     }
+  }
 
-    hideModal(auctionModal);
-    machineOffer = [];
+  function revealFaceDownTiles(faceDownTiles, callback) {
+    // Log the revealed tiles
+    faceDownTiles.forEach((offer) => {
+      logMessage(
+        `Tuile révélée : ${offer.tile.sign} ${
+          offer.tile.color === RED
+            ? "rouge"
+            : offer.tile.color === PINK
+            ? "rose"
+            : offer.tile.color === YELLOW
+            ? "jaune"
+            : offer.tile.color === GREEN
+            ? "vert"
+            : offer.tile.color === BLUE
+            ? "bleu"
+            : offer.tile.color === PURPLE
+            ? "violet"
+            : "error"
+        }`
+      );
+
+      // Mark tile as face up for display
+      offer.faceUp = true;
+    });
+
+    // Update the machine UI to show revealed tiles
     updateMachineUI();
-    endTurn();
+
+    // Wait 1 second before proceeding
+    setTimeout(() => {
+      callback();
+    }, 1500);
   }
 
   // --- VÉRIFICATION DE VICTOIRE ---
