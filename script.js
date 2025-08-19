@@ -331,12 +331,20 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Assign colors and special properties
       if (i === 1 || (i > 1 && (i - 1) % 3 === 0)) {
-        cells[index].textContent = "€";
+        // Money cells
         cells[index].dataset.type = "money";
         const signIndex = Math.floor(i / 3) % SIGNS.length;
         const animalSign = SIGNS[signIndex];
         cells[index].style.backgroundColor = animalColors[animalSign];
+
+        // Add Yuan image for money cells
+        cells[index].style.backgroundImage = "url('images/Yuan.png')";
+        cells[index].style.backgroundSize = "contain";
+        cells[index].style.backgroundRepeat = "no-repeat";
+        cells[index].style.backgroundPosition = "center";
+        cells[index].textContent = ""; // Remove € symbol
       } else {
+        // Animal cells
         const signIndex = Math.floor(i / 3) % SIGNS.length;
         const animalSign = SIGNS[signIndex];
         const animalColor = animalColors[animalSign];
@@ -344,8 +352,14 @@ document.addEventListener("DOMContentLoaded", () => {
         cells[index].style.backgroundColor = animalColor;
         cells[index].dataset.type = "color";
         cells[index].dataset.color = animalColor;
-        cells[index].textContent = animalSign;
         cells[index].dataset.sign = animalSign;
+
+        // Add animal image for color cells
+        cells[index].style.backgroundImage = `url('images/${animalSign}.png')`;
+        cells[index].style.backgroundSize = "contain";
+        cells[index].style.backgroundRepeat = "no-repeat";
+        cells[index].style.backgroundPosition = "center";
+        cells[index].textContent = ""; // Remove animal text
       }
     });
 
@@ -573,7 +587,22 @@ document.addEventListener("DOMContentLoaded", () => {
         (p) => p !== player && p.getOwnedSigns().includes(cellSign)
       );
       if (owner) {
-        const rent = 50;
+        let rent = 50; // Base rent
+
+        // Check if owner has 3+ tiles of this animal (monopoly)
+        const ownedSignTiles = owner.tiles.filter(
+          (tile) => tile.sign === cellSign
+        );
+        if (ownedSignTiles.length >= 3) {
+          rent = 200; // Monopoly rent
+
+          // Check if any of the 3+ tiles is a special tile
+          const hasSpecialTile = ownedSignTiles.some((tile) => tile.isSpecial);
+          if (hasSpecialTile) {
+            rent = 400; // Special monopoly rent
+          }
+        }
+
         logMessage(
           `${player.name} paie un loyer de ${rent}€ à ${owner.name} pour le signe ${cellSign}.`
         );
