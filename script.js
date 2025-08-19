@@ -14,14 +14,14 @@ document.addEventListener("DOMContentLoaded", () => {
     "Cheval",
     "Chevre",
   ];
-  const COLORS = [
-    "#ffadad",
-    "#ffd6a5",
-    "#fdffb6",
-    "#caffbf",
-    "#9bf6ff",
-    "#a0c4ff",
-  ];
+
+  const RED = "#b81425";
+  const YELLOW = "#ffd000";
+  const GREEN = "#2c8c27";
+  const BLUE = "#1175f7";
+  const PINK = "#de4ed9";
+  const PURPLE = "#732da8";
+
   const BOARD_SIZE = 36; // 10x10 grid perimeter minus corners = 36 cells
   const STARTING_MONEY = 2500;
 
@@ -113,18 +113,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
     checkIfSpecial(sign, color) {
       const specialTiles = [
-        { sign: "Dragon", color: "#caffbf" }, // green
-        { sign: "Chien", color: "#caffbf" }, // green
+        { sign: "Dragon", color: "#2c8c27" }, // green
+        { sign: "Chien", color: "#2c8c27" }, // green
         { sign: "Chevre", color: "#ffb3ff" }, // pink
         { sign: "Buffle", color: "#ffb3ff" }, // pink
         { sign: "Singe", color: "#fdffb6" }, // yellow
         { sign: "Tigre", color: "#fdffb6" }, // yellow
-        { sign: "Rat", color: "#9bf6ff" }, // blue
-        { sign: "Cheval", color: "#9bf6ff" }, // blue
+        { sign: "Rat", color: "#1175f7" }, // blue
+        { sign: "Cheval", color: "#1175f7" }, // blue
         { sign: "Cochon", color: "#ffadad" }, // red
         { sign: "Serpent", color: "#ffadad" }, // red
-        { sign: "Chat", color: "#a0c4ff" }, // purple
-        { sign: "Coq", color: "#a0c4ff" }, // purple
+        { sign: "Chat", color: "#732da8" }, // purple
+        { sign: "Coq", color: "#732da8" }, // purple
       ];
 
       return specialTiles.some(
@@ -272,12 +272,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Define the 6 base colors for tiles
     const tileColors = [
-      "#ffadad", // red
-      "#ffd6a5", // orange
-      "#fdffb6", // yellow
-      "#caffbf", // green
-      "#9bf6ff", // blue
-      "#a0c4ff", // purple
+      RED, // red
+      PINK, // orange
+      YELLOW, // yellow
+      GREEN, // green
+      BLUE, // blue
+      PURPLE, // purple
     ];
 
     // Create one tile for each animal-color combination
@@ -310,18 +310,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Define animal-color mapping
     const animalColors = {
-      Chien: "#caffbf", // green
-      Dragon: "#caffbf", // green
-      Cochon: "#ffadad", // red
-      Serpent: "#ffadad", // red
-      Rat: "#9bf6ff", // blue
-      Cheval: "#9bf6ff", // blue
-      Buffle: "#ffb3ff", // pink
-      Chevre: "#ffb3ff", // pink
-      Singe: "#fdffb6", // yellow
-      Tigre: "#fdffb6", // yellow
-      Coq: "#a0c4ff", // purple
-      Chat: "#a0c4ff", // purple
+      Chien: GREEN, // green
+      Dragon: GREEN, // green
+      Cochon: RED, // red
+      Serpent: RED, // red
+      Rat: BLUE, // blue
+      Cheval: BLUE, // blue
+      Buffle: PINK, // pink
+      Chevre: PINK, // pink
+      Singe: YELLOW, // yellow
+      Tigre: YELLOW, // yellow
+      Coq: PURPLE, // purple
+      Chat: PURPLE, // purple
     };
 
     path.forEach((p, i) => {
@@ -399,11 +399,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Define the order as specified
     const colorOrder = [
-      "#9bf6ff",
+      "#1175f7",
       "#ffb3ff",
       "#fdffb6",
-      "#a0c4ff",
-      "#caffbf",
+      "#732da8",
+      "#2c8c27",
       "#ffadad",
     ]; // blue, pink, yellow, purple, green, red
     const signOrder = [

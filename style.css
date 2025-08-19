@@ -2,12 +2,12 @@
   --board-size: 90vmin;
   --cell-size: calc(var(--board-size) / 10);
   --pawn-size: calc(var(--cell-size) * 0.4);
-  --tile-color-1: #ffadad;
-  --tile-color-2: #ffd6a5;
-  --tile-color-3: #fdffb6;
-  --tile-color-4: #caffbf;
-  --tile-color-5: #9bf6ff;
-  --tile-color-6: #a0c4ff;
+  --tile-color-1: #b81425;
+  --tile-color-2: #de4ed9;
+  --tile-color-3: #ffd000;
+  --tile-color-4: #2c8c27;
+  --tile-color-5: #1175f7;
+  --tile-color-6: #732da8;
   --bg-color: #f7f7f7;
   --border-color: #333;
 }
