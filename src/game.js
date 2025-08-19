@@ -1,7 +1,8 @@
 import { SIGNS, RED, PINK, YELLOW, GREEN, BLUE, PURPLE } from "./const.js";
+import { Tile } from "./tile.js";
 
 export function createTileMachine() {
-  tileMachine = [];
+  let tileMachine = [];
 
   // Define the 6 base colors for tiles
   const tileColors = [
@@ -26,5 +27,7 @@ export function createTileMachine() {
     [tileMachine[i], tileMachine[j]] = [tileMachine[j], tileMachine[i]];
   }
 
-  console.log(`Machine créée avec ${tileMachine.length} tuiles`); // Should be 72 tiles
+  console.log(`Machine créée avec ${tileMachine.length} tuiles`);
+
+  return tileMachine;
 }

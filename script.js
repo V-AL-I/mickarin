@@ -13,8 +13,6 @@ import {
 import { createTileMachine } from "./src/game.js";
 
 document.addEventListener("DOMContentLoaded", () => {
-  // --- CONSTANTES ET CONFIGURATION ---
-
   // --- VARIABLES D'ÉTAT DU JEU ---
   let players = [];
   let currentPlayerIndex = 0;
@@ -159,7 +157,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     createBoard();
-    createTileMachine();
+    tileMachine = createTileMachine();
     setupUI();
     gameInProgress = true;
     currentPlayerIndex = 0;
