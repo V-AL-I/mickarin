@@ -153,6 +153,17 @@ h1 {
   font-weight: bold;
 }
 
+.tile.special-tile {
+  border: 3px dotted gold !important;
+  box-shadow: 0 0 5px rgba(255, 215, 0, 0.5);
+}
+
+/* Ensure face-down tiles don't show special styling */
+.tile.face-down.special-tile {
+  border: 1px solid #333 !important;
+  box-shadow: none !important;
+}
+
 #controls-panel {
   display: flex;
   flex-direction: column;

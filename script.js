@@ -111,6 +111,28 @@ document.addEventListener("DOMContentLoaded", () => {
       this.sign = sign;
       this.color = color;
       this.imagePath = `images/${sign}.png`; // Path to the PNG file
+      this.isSpecial = this.checkIfSpecial(sign, color);
+    }
+
+    checkIfSpecial(sign, color) {
+      const specialTiles = [
+        { sign: "Dragon", color: "#caffbf" }, // green
+        { sign: "Chien", color: "#caffbf" }, // green
+        { sign: "Chevre", color: "#ffb3ff" }, // pink
+        { sign: "Buffle", color: "#ffb3ff" }, // pink
+        { sign: "Singe", color: "#fdffb6" }, // yellow
+        { sign: "Tigre", color: "#fdffb6" }, // yellow
+        { sign: "Rat", color: "#9bf6ff" }, // blue
+        { sign: "Cheval", color: "#9bf6ff" }, // blue
+        { sign: "Cochon", color: "#ffadad" }, // red
+        { sign: "Serpent", color: "#ffadad" }, // red
+        { sign: "Chat", color: "#a0c4ff" }, // purple
+        { sign: "Coq", color: "#a0c4ff" }, // purple
+      ];
+
+      return specialTiles.some(
+        (special) => special.sign === sign && special.color === color
+      );
     }
   }
 
@@ -127,9 +149,15 @@ document.addEventListener("DOMContentLoaded", () => {
       tileDiv.title = tile.sign;
       // Fallback text if image doesn't load
       tileDiv.textContent = tile.sign.substring(0, 1);
+
+      // Add special outline if it's a special tile and face up
+      if (tile.isSpecial) {
+        tileDiv.classList.add("special-tile");
+      }
     } else {
       tileDiv.classList.add("face-down");
       // No image or text for face-down tiles, just the color
+      // Special outline is NOT shown when face down
     }
 
     return tileDiv;
@@ -308,7 +336,9 @@ document.addEventListener("DOMContentLoaded", () => {
       if (i === 1 || (i > 1 && (i - 1) % 3 === 0)) {
         cells[index].textContent = "€";
         cells[index].dataset.type = "money";
-        cells[index].style.backgroundColor = "lightgreen";
+        const signIndex = Math.floor(i / 3) % SIGNS.length;
+        const animalSign = SIGNS[signIndex];
+        cells[index].style.backgroundColor = animalColors[animalSign];
       } else {
         const signIndex = Math.floor(i / 3) % SIGNS.length;
         const animalSign = SIGNS[signIndex];
@@ -560,8 +590,8 @@ document.addEventListener("DOMContentLoaded", () => {
   function startAuction() {
     auctionBidders = [...players];
     currentBidderIndex = currentPlayerIndex;
-    highestBid = 0;
-    highestBidder = null;
+    highestBid = 100;
+    highestBidder = auctionBidders[currentBidderIndex];
     auctionPasses = 0;
 
     auctionModal.querySelector("#auction-tiles").innerHTML = "";
