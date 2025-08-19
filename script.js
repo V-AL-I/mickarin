@@ -70,7 +70,6 @@ document.addEventListener("DOMContentLoaded", () => {
       this.tiles = [];
       this.pawn = null;
       this.infoEl = null;
-      this.tilesEl = null;
       this.collectionEl = null;
     }
 
@@ -101,11 +100,6 @@ document.addEventListener("DOMContentLoaded", () => {
     updatePlayerInfo() {
       if (!this.infoEl) return;
       this.infoEl.querySelector(".money").textContent = this.money;
-      this.tilesEl.innerHTML = "";
-      this.tiles.forEach((tile) => {
-        const tileDiv = createTileElement(tile);
-        this.tilesEl.appendChild(tileDiv);
-      });
     }
   }
 
@@ -365,13 +359,11 @@ document.addEventListener("DOMContentLoaded", () => {
       div.className = "player-info";
       div.style.borderColor = player.color;
       div.innerHTML = `
-            <h4>${player.name}</h4>
-            <p>Argent: <span class="money">${player.money}</span>€</p>
-            <div class="player-tiles"></div>
-            <div class="player-tile-collection"></div>
-        `;
+          <h4>${player.name}</h4>
+          <p>Argent: <span class="money">${player.money}</span>€</p>
+          <div class="player-tile-collection"></div>
+      `;
       player.infoEl = div;
-      player.tilesEl = div.querySelector(".player-tiles");
       player.collectionEl = div.querySelector(".player-tile-collection");
       playersPanel.appendChild(div);
 
