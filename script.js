@@ -71,6 +71,7 @@ document.addEventListener("DOMContentLoaded", () => {
       this.pawn = null;
       this.infoEl = null;
       this.tilesEl = null;
+      this.collectionEl = null;
     }
 
     getStartingPosition(yob) {
@@ -80,11 +81,13 @@ document.addEventListener("DOMContentLoaded", () => {
     addTile(tile) {
       this.tiles.push(tile);
       this.updatePlayerInfo();
+      updatePlayerTileCollections(); // Update collection display
     }
 
     removeTile(tileToRemove) {
       this.tiles = this.tiles.filter((tile) => tile !== tileToRemove);
       this.updatePlayerInfo();
+      updatePlayerTileCollections(); // Update collection display
     }
 
     getOwnedSigns() {
@@ -358,17 +361,18 @@ document.addEventListener("DOMContentLoaded", () => {
   function setupUI() {
     playersPanel.innerHTML = "";
     players.forEach((player) => {
-      // Player info panel
       const div = document.createElement("div");
       div.className = "player-info";
       div.style.borderColor = player.color;
       div.innerHTML = `
-                <h4>${player.name}</h4>
-                <p>Argent: <span class="money">${player.money}</span>€</p>
-                <div class="player-tiles"></div>
-            `;
+            <h4>${player.name}</h4>
+            <p>Argent: <span class="money">${player.money}</span>€</p>
+            <div class="player-tiles"></div>
+            <div class="player-tile-collection"></div>
+        `;
       player.infoEl = div;
       player.tilesEl = div.querySelector(".player-tiles");
+      player.collectionEl = div.querySelector(".player-tile-collection");
       playersPanel.appendChild(div);
 
       // Player pawn
@@ -378,6 +382,87 @@ document.addEventListener("DOMContentLoaded", () => {
       player.pawn = pawn;
       board.appendChild(pawn);
       updatePawnPosition(player);
+
+      // Create individual tile collection for this player
+      createPlayerTileCollection(player);
+    });
+  }
+
+  function createPlayerTileCollection(player) {
+    const collectionContainer = player.collectionEl;
+
+    // Define the order as specified
+    const colorOrder = [
+      "#9bf6ff",
+      "#ffb3ff",
+      "#fdffb6",
+      "#a0c4ff",
+      "#caffbf",
+      "#ffadad",
+    ]; // blue, pink, yellow, purple, green, red
+    const signOrder = [
+      "Rat",
+      "Buffle",
+      "Tigre",
+      "Chat",
+      "Dragon",
+      "Serpent",
+      "Cheval",
+      "Chevre",
+      "Singe",
+      "Coq",
+      "Chien",
+      "Cochon",
+    ]; // mouse, buffalo, tiger, cat, dragon, snake, horse, goat, monkey, rooster, dog, pig
+
+    colorOrder.forEach((color) => {
+      const colorRow = document.createElement("div");
+      colorRow.className = "player-collection-row";
+
+      signOrder.forEach((sign) => {
+        const tile = new Tile(sign, color);
+        const tileDiv = createTileElement(tile, true);
+        tileDiv.classList.add("player-collection-tile");
+        tileDiv.dataset.sign = sign;
+        tileDiv.dataset.color = color;
+        tileDiv.dataset.playerId = player.id;
+        colorRow.appendChild(tileDiv);
+      });
+
+      collectionContainer.appendChild(colorRow);
+    });
+  }
+
+  function updatePlayerTileCollections() {
+    players.forEach((player) => {
+      const playerCollectionTiles = document.querySelectorAll(
+        `.player-collection-tile[data-player-id="${player.id}"]`
+      );
+
+      // Reset all tiles to low opacity for this player
+      playerCollectionTiles.forEach((tile) => {
+        tile.classList.remove("owned");
+        tile.style.border = tile.classList.contains("special-tile")
+          ? "3px dotted gold"
+          : "1px solid #333";
+      });
+
+      // Mark owned tiles for this player
+      player.tiles.forEach((playerTile) => {
+        const matchingTile = document.querySelector(
+          `.player-collection-tile[data-player-id="${player.id}"][data-sign="${playerTile.sign}"][data-color="${playerTile.color}"]`
+        );
+        if (matchingTile) {
+          matchingTile.classList.add("owned");
+          // Add player color border
+          matchingTile.style.border = `2px solid ${player.color}`;
+          // Keep special tile gold border if it's special
+          if (matchingTile.classList.contains("special-tile")) {
+            matchingTile.style.border = `3px dotted gold`;
+            matchingTile.style.boxShadow = `0 0 3px rgba(255, 215, 0, 0.8), 0 0 0 1px ${player.color}`;
+          }
+        }
+      });
     });
   }
 

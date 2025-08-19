@@ -111,8 +111,47 @@ h1 {
   border: 2px solid var(--border-color);
   padding: 10px;
   border-radius: 8px;
-  min-width: 200px;
+  min-width: 250px;
+  max-width: 300px;
   background-color: #fff;
+}
+
+.player-tile-collection {
+  margin-top: 10px;
+  padding: 5px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background-color: #f9f9f9;
+}
+
+.player-collection-row {
+  display: flex;
+  justify-content: flex-start;
+  gap: 1px;
+  margin-bottom: 1px;
+}
+
+.player-collection-tile {
+  width: 18px !important;
+  height: 18px !important;
+  font-size: 8px !important;
+  opacity: 0.25;
+  transition: opacity 0.3s ease, box-shadow 0.3s ease;
+  margin: 0.5px;
+  border-radius: 2px;
+}
+
+.player-collection-tile.owned {
+  opacity: 1;
+}
+
+.player-collection-tile.special-tile {
+  border: 2px dotted gold !important;
+  box-shadow: 0 0 2px rgba(255, 215, 0, 0.5);
+}
+
+.player-collection-tile.special-tile.owned {
+  box-shadow: 0 0 3px rgba(255, 215, 0, 0.8);
 }
 
 .player-info h4 {
@@ -162,6 +201,55 @@ h1 {
 .tile.face-down.special-tile {
   border: 1px solid #333 !important;
   box-shadow: none !important;
+}
+
+#tile-collection {
+  display: none;
+}
+
+.tile-collection-row {
+  display: flex;
+  justify-content: center;
+  gap: 2px;
+  margin-bottom: 2px;
+}
+
+.collection-tile {
+  width: 30px !important;
+  height: 30px !important;
+  font-size: 12px !important;
+  opacity: 0.25;
+  transition: opacity 0.3s ease, box-shadow 0.3s ease;
+  margin: 1px;
+}
+
+.collection-tile.owned {
+  opacity: 1;
+}
+
+.collection-tile.special-tile {
+  border: 3px dotted gold !important;
+  box-shadow: 0 0 3px rgba(255, 215, 0, 0.5);
+}
+
+.collection-tile.special-tile.owned {
+  box-shadow: 0 0 5px rgba(255, 215, 0, 0.8);
+}
+
+#center-panel {
+  position: absolute;
+  top: var(--cell-size);
+  left: var(--cell-size);
+  width: calc(var(--board-size) - 2 * var(--cell-size));
+  height: calc(var(--board-size) - 2 * var(--cell-size));
+  background-color: #fff;
+  border: 2px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 10px;
+  box-sizing: border-box;
 }
 
 #controls-panel {
