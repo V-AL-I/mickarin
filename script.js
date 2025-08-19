@@ -56,7 +56,13 @@ document.addEventListener("DOMContentLoaded", () => {
   const startGameBtn = document.getElementById("start-game-btn");
   const auctionModal = document.getElementById("auction-modal");
   const stealModal = document.getElementById("steal-modal");
+  const sellModal = document.getElementById("sell-modal");
   const winnerModal = document.getElementById("winner-modal");
+
+  const sellTilesContainer = document.getElementById("sell-tiles-container");
+  const sellTotalEl = document.getElementById("sell-total");
+  const confirmSellBtn = document.getElementById("confirm-sell-btn");
+  const cancelSellBtn = document.getElementById("cancel-sell-btn");
 
   // --- CLASSES DU JEU ---
   class Player {
@@ -507,9 +513,158 @@ document.addEventListener("DOMContentLoaded", () => {
     startTurn();
   }
 
+  // --- VENTE DE TUILES ---
+  let tilesToSell = [];
+  let sellTotal = 0;
+
+  function openSellModal() {
+    const currentPlayer = players[currentPlayerIndex];
+
+    if (currentPlayer.tiles.length === 0) {
+      alert("Vous n'avez pas de tuiles à vendre.");
+      return;
+    }
+
+    tilesToSell = [];
+    sellTotal = 0;
+    updateSellTotal();
+
+    sellTilesContainer.innerHTML = "";
+
+    currentPlayer.tiles.forEach((tile, index) => {
+      const tileDiv = createTileElement(tile, true);
+      tileDiv.style.cursor = "pointer";
+      tileDiv.style.margin = "5px";
+      tileDiv.style.position = "relative";
+      tileDiv.dataset.tileIndex = index;
+
+      // Add price indicator
+      const priceLabel = document.createElement("div");
+      priceLabel.style.position = "absolute";
+      priceLabel.style.bottom = "2px";
+      priceLabel.style.right = "2px";
+      priceLabel.style.backgroundColor = "rgba(0,0,0,0.7)";
+      priceLabel.style.color = "white";
+      priceLabel.style.fontSize = "10px";
+      priceLabel.style.padding = "2px";
+      priceLabel.style.borderRadius = "3px";
+      priceLabel.textContent = tile.isSpecial ? "400€" : "200€";
+      tileDiv.appendChild(priceLabel);
+
+      tileDiv.onclick = () => toggleTileForSale(tile, tileDiv, index);
+      sellTilesContainer.appendChild(tileDiv);
+    });
+
+    showModal(sellModal);
+  }
+
+  function toggleTileForSale(tile, tileDiv, index) {
+    if (tilesToSell.includes(index)) {
+      // Remove from sale
+      tilesToSell = tilesToSell.filter((i) => i !== index);
+      tileDiv.style.border = "1px solid #333";
+      tileDiv.style.opacity = "1";
+      sellTotal -= tile.isSpecial ? 400 : 200;
+    } else {
+      // Add to sale
+      tilesToSell.push(index);
+      tileDiv.style.border = "3px solid #ff0000";
+      tileDiv.style.opacity = "0.7";
+      sellTotal += tile.isSpecial ? 400 : 200;
+    }
+
+    updateSellTotal();
+  }
+
+  function updateSellTotal() {
+    sellTotalEl.textContent = `Total: ${sellTotal}€`;
+    confirmSellBtn.disabled = tilesToSell.length === 0;
+  }
+
+  function confirmSell() {
+    const currentPlayer = players[currentPlayerIndex];
+
+    if (tilesToSell.length === 0) return;
+
+    // Sort indices in descending order to remove from end first
+    const sortedIndices = tilesToSell.sort((a, b) => b - a);
+
+    sortedIndices.forEach((index) => {
+      const tile = currentPlayer.tiles[index];
+      logMessage(
+        `${currentPlayer.name} vend une tuile ${tile.sign} pour ${
+          tile.isSpecial ? 400 : 200
+        }€.`
+      );
+      currentPlayer.tiles.splice(index, 1);
+    });
+
+    currentPlayer.money += sellTotal;
+    currentPlayer.updatePlayerInfo();
+    updatePlayerTileCollections();
+
+    // Update the current player money display in controls panel
+    playerMoneyEl.textContent = `${currentPlayer.money}€`;
+
+    logMessage(
+      `${currentPlayer.name} gagne ${sellTotal}€ en vendant ${tilesToSell.length} tuile(s).`
+    );
+
+    hideModal(sellModal);
+    tilesToSell = [];
+    sellTotal = 0;
+  }
+
+  function cancelSell() {
+    hideModal(sellModal);
+    tilesToSell = [];
+    sellTotal = 0;
+  }
+
+  // --- GESTION DES TOURS ---
+  function startTurn() {
+    const currentPlayer = players[currentPlayerIndex];
+    logMessage(`C'est au tour de ${currentPlayer.name}.`);
+    playerTurnEl.textContent = `Tour de: ${currentPlayer.name}`;
+    playerMoneyEl.textContent = `${currentPlayer.money}€`;
+    rollDiceBtn.disabled = false;
+    diceResultEl.textContent = "";
+
+    // Remove any existing event listeners and set to normal roll behavior
+    rollDiceBtn.onclick = null;
+    rollDiceBtn.onclick = rollDice;
+
+    // Show sell button
+    showSellButton();
+  }
+
+  function showSellButton() {
+    // Add sell button if it doesn't exist
+    let sellBtn = document.getElementById("sell-tiles-btn");
+    if (!sellBtn) {
+      sellBtn = document.createElement("button");
+      sellBtn.id = "sell-tiles-btn";
+      sellBtn.textContent = "Vendre des tuiles";
+      sellBtn.onclick = openSellModal;
+
+      const controlsPanel = document.getElementById("controls-panel");
+      const rollDiceBtn = document.getElementById("roll-dice-btn");
+      controlsPanel.insertBefore(sellBtn, rollDiceBtn);
+    }
+    sellBtn.style.display = "block";
+  }
+
+  function hideSellButton() {
+    const sellBtn = document.getElementById("sell-tiles-btn");
+    if (sellBtn) {
+      sellBtn.style.display = "none";
+    }
+  }
+
   // --- LOGIQUE DU JEU ---
   function rollDice() {
     rollDiceBtn.disabled = true;
+    hideSellButton();
     const diceRoll = Math.floor(Math.random() * 6) + 1;
     diceResultEl.textContent = `Résultat : ${diceRoll}`;
     logMessage(`${players[currentPlayerIndex].name} a fait un ${diceRoll}.`);
@@ -1011,6 +1166,9 @@ document.addEventListener("DOMContentLoaded", () => {
   startGameBtn.addEventListener("click", initializeGame);
   takeTileBtn.addEventListener("click", playerTakesTiles);
   relaunchBtn.addEventListener("click", drawFromMachine);
+
+  confirmSellBtn.addEventListener("click", confirmSell);
+  cancelSellBtn.addEventListener("click", cancelSell);
 
   auctionModal
     .querySelector("#place-bid-btn")
