@@ -3,14 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Mickarin</title>
+    <title>Mickarin Online</title>
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
+    <!-- 
+      SECTION 1: MAIN MENU 
+      This is the first thing users see. It is visible by default.
+    -->
     <div id="main-menu">
       <h2>Mickarin Online</h2>
-      <div id="create-game-form">
-        <h3>Créer une partie</h3>
+      <div class="menu-form" id="create-game-form">
+        <h3>Créer une nouvelle partie</h3>
         <input
           type="text"
           id="player-name-create"
@@ -26,8 +30,8 @@
         <button id="create-game-btn">Créer</button>
       </div>
       <hr />
-      <div id="join-game-form">
-        <h3>Rejoindre une partie</h3>
+      <div class="menu-form" id="join-game-form">
+        <h3>Rejoindre une partie existante</h3>
         <input
           type="text"
           id="game-code-join"
@@ -51,18 +55,13 @@
       </div>
     </div>
 
-    <!-- Add a new Lobby Modal to replace the old setup modal -->
-    <div id="lobby-modal" class="modal hidden">
-      <h2>Lobby de la partie</h2>
-      <p>Code de la partie : <b id="lobby-game-code"></b></p>
-      <h3>Joueurs Connectés</h3>
-      <ul id="lobby-player-list"></ul>
-      <button id="start-game-btn" class="hidden">Commencer la partie</button>
-    </div>
+    <!-- 
+      SECTION 2: MAIN GAME AREA
+      This is hidden by default and is only shown when the server starts the game.
+    -->
     <div id="game-container" class="hidden">
       <div id="board-container">
         <div id="center-panel">
-          <div id="dice-result-display"></div>
           <h2>La Machine</h2>
           <div id="machine-tiles"></div>
           <div id="machine-controls">
@@ -79,7 +78,7 @@
       <div id="controls-panel">
         <div id="current-player-info">
           <h3 id="player-turn"></h3>
-          <p>Argent: <span id="player-money"></span></p>
+          <p>Mon Argent: <span id="player-money"></span></p>
         </div>
         <button id="roll-dice-btn">Lancer le dé</button>
         <p id="dice-result"></p>
@@ -90,30 +89,44 @@
       <div id="players-panel"></div>
     </div>
 
-    <!-- Modals -->
+    <!-- 
+      SECTION 3: MODALS 
+      All modals are hidden by default and are shown by client.js based on server state.
+    -->
     <div id="modal-backdrop" class="hidden"></div>
 
-    <div id="setup-modal" class="modal">
-      <h2>Configuration de la partie</h2>
-      <label for="player-count">Nombre de joueurs (2-8):</label>
-      <input type="number" id="player-count" min="2" max="8" value="2" />
-      <button id="setup-players-btn">Configurer les joueurs</button>
-
-      <div id="players-setup" class="hidden">
-        <h3>Informations des joueurs</h3>
-        <div id="players-inputs"></div>
-        <button id="start-game-btn">Commencer la partie</button>
-      </div>
+    <!-- The new Lobby Modal replaces the old Setup Modal -->
+    <div id="lobby-modal" class="modal hidden">
+      <h2>Lobby de la partie</h2>
+      <p>Partagez ce code avec vos amis :</p>
+      <h3
+        id="lobby-game-code"
+        style="
+          background: #eee;
+          padding: 10px;
+          border-radius: 5px;
+          user-select: all;
+        "
+      ></h3>
+      <h4>Joueurs Connectés:</h4>
+      <ul id="lobby-player-list" style="list-style: none; padding: 0"></ul>
+      <button id="start-game-btn" class="hidden">Commencer la partie</button>
+      <p style="font-size: 0.8em; color: #666">
+        (Seul l'hôte peut commencer la partie)
+      </p>
     </div>
 
     <div id="auction-modal" class="modal hidden">
       <h2>Enchères !</h2>
       <p>Un lot de tuiles est mis aux enchères.</p>
-      <div id="auction-tiles"></div>
+      <div
+        id="auction-tiles"
+        style="display: flex; justify-content: center; gap: 5px; margin: 10px 0"
+      ></div>
       <p id="auction-info"></p>
       <div class="auction-bid">
         <label for="bid-amount">Votre offre :</label>
-        <input type="number" id="bid-amount" min="1" />
+        <input type="number" id="bid-amount" min="1" step="100" />
         <button id="place-bid-btn">Enchérir</button>
         <button id="pass-bid-btn">Passer</button>
       </div>
@@ -122,14 +135,17 @@
     <div id="steal-modal" class="modal hidden">
       <h2>Vol de tuile</h2>
       <p id="steal-info"></p>
-      <div id="steal-options"></div>
+      <div
+        id="steal-options"
+        style="display: flex; justify-content: center; gap: 5px; margin: 10px 0"
+      ></div>
     </div>
 
     <div id="sell-modal" class="modal hidden">
       <h2>Vendre des tuiles</h2>
       <p id="sell-info">
-        Cliquez sur les tuiles que vous voulez vendre. Tuile normale: 200€,
-        Tuile spéciale: 400€
+        Cliquez sur les tuiles que vous voulez vendre.<br />
+        Tuile normale: 200€, Tuile spéciale: 400€
       </p>
       <div id="sell-tiles-container"></div>
       <div id="sell-controls">
@@ -141,9 +157,15 @@
 
     <div id="winner-modal" class="modal hidden">
       <h2 id="winner-message"></h2>
-      <button id="restart-game-btn">Rejouer</button>
+      <button id="restart-game-btn">Retour au Menu Principal</button>
     </div>
 
+    <!-- 
+      SECTION 4: SCRIPTS
+      These must be at the end of the body.
+      1. Socket.IO client library is served automatically by the server.
+      2. Our custom client.js file comes after.
+    -->
     <script src="/socket.io/socket.io.js"></script>
     <script src="client.js"></script>
   </body>
