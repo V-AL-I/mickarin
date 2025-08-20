@@ -7,7 +7,59 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <div id="game-container">
+    <div id="main-menu">
+      <h2>Mickarin Online</h2>
+      <div id="create-game-form">
+        <h3>Créer une partie</h3>
+        <input
+          type="text"
+          id="player-name-create"
+          placeholder="Votre nom"
+          required
+        />
+        <input
+          type="number"
+          id="player-yob-create"
+          placeholder="Année de naissance"
+          required
+        />
+        <button id="create-game-btn">Créer</button>
+      </div>
+      <hr />
+      <div id="join-game-form">
+        <h3>Rejoindre une partie</h3>
+        <input
+          type="text"
+          id="game-code-join"
+          placeholder="Code de la partie"
+          style="text-transform: uppercase"
+          required
+        />
+        <input
+          type="text"
+          id="player-name-join"
+          placeholder="Votre nom"
+          required
+        />
+        <input
+          type="number"
+          id="player-yob-join"
+          placeholder="Année de naissance"
+          required
+        />
+        <button id="join-game-btn">Rejoindre</button>
+      </div>
+    </div>
+
+    <!-- Add a new Lobby Modal to replace the old setup modal -->
+    <div id="lobby-modal" class="modal hidden">
+      <h2>Lobby de la partie</h2>
+      <p>Code de la partie : <b id="lobby-game-code"></b></p>
+      <h3>Joueurs Connectés</h3>
+      <ul id="lobby-player-list"></ul>
+      <button id="start-game-btn" class="hidden">Commencer la partie</button>
+    </div>
+    <div id="game-container" class="hidden">
       <div id="board-container">
         <div id="center-panel">
           <div id="dice-result-display"></div>
@@ -92,6 +144,7 @@
       <button id="restart-game-btn">Rejouer</button>
     </div>
 
-    <script src="script.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="client.js"></script>
   </body>
 </html>
