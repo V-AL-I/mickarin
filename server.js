@@ -123,6 +123,15 @@ function logMessage(game, message) {
   if (game.gameLog.length > 50) game.gameLog.pop();
 }
 
+// --- NEW HELPER ---
+function shuffleMachine(game) {
+  const machine = game.tileMachine;
+  for (let i = machine.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [machine[i], machine[j]] = [machine[j], machine[i]];
+  }
+}
+
 // --- 5. SOCKET.IO REAL-TIME LOGIC ---
 io.on("connection", (socket) => {
   // Unchanged lobby logic...
@@ -202,13 +211,11 @@ io.on("connection", (socket) => {
     }
   });
 
-  // --- MODIFIED rollDice HANDLER ---
+  // Core game logic handlers...
   socket.on("rollDice", async ({ gameCode }) => {
     const game = await gamesCollection.findOne({ gameCode });
     const player = game.players[game.currentPlayerIndex];
     if (player.socketId !== socket.id) return;
-
-    // Path for the SECOND roll after stealing
     if (game.turnState === "secondRoll") {
       const diceRoll = Math.floor(Math.random() * 6) + 1;
       game.lastDiceRoll = diceRoll;
@@ -221,18 +228,12 @@ io.on("connection", (socket) => {
       await gamesCollection.updateOne({ gameCode }, { $set: game });
       return io.to(gameCode).emit("gameStateUpdate", game);
     }
-
-    // Path for a NORMAL first roll
     if (game.turnState !== "start") return;
-
     const diceRoll = Math.floor(Math.random() * 6) + 1;
     game.lastDiceRoll = diceRoll;
     logMessage(game, `${player.name} a fait un ${diceRoll}.`);
-
     const oldPosition = player.position;
     const newPosition = (oldPosition + diceRoll) % BOARD_SIZE;
-
-    // Overtake Detection
     const overtakenPlayers = new Set();
     for (let i = 1; i <= diceRoll; i++) {
       const pathPosition = (oldPosition + i) % BOARD_SIZE;
@@ -246,15 +247,9 @@ io.on("connection", (socket) => {
       });
     }
     player.position = newPosition;
-
-    // --- MODIFIED LOGIC ---
-    // Check if any of the overtaken players have tiles BEFORE starting the steal sequence.
     const victims = Array.from(overtakenPlayers);
     const victimsWithTiles = victims.filter((v) => v.tiles.length > 0);
-
     if (victimsWithTiles.length > 0) {
-      // --- STEAL PATH ---
-      // At least one victim has tiles, so proceed with stealing.
       logMessage(
         game,
         `${player.name} a dépassé ${victimsWithTiles
@@ -265,18 +260,15 @@ io.on("connection", (socket) => {
       game.turnState = "stealing";
       game.stealState = {
         thiefId: player.id,
-        victimQueue: victimsWithTiles.map((v) => v.id), // Only queue victims with tiles
+        victimQueue: victimsWithTiles.map((v) => v.id),
       };
     } else {
-      // --- NORMAL PATH ---
-      // Either no one was overtaken, or those who were have no tiles.
       if (victims.length > 0) {
         logMessage(
           game,
           `${player.name} a dépassé des joueurs, mais personne n'a de tuiles à voler. Le tour continue.`
         );
       }
-
       const cell = { type: player.position % 3 === 1 ? "money" : "color" };
       if (cell.type === "money") {
         player.money += 100;
@@ -291,12 +283,9 @@ io.on("connection", (socket) => {
         drawFromMachine(game);
       }
     }
-
     await gamesCollection.updateOne({ gameCode }, { $set: game });
     io.to(gameCode).emit("gameStateUpdate", game);
   });
-
-  // Unchanged handlers...
   socket.on("stealTile", async ({ gameCode, victimId, tileIndex }) => {
     const game = await gamesCollection.findOne({ gameCode });
     if (game.turnState !== "stealing") return;
@@ -349,28 +338,59 @@ io.on("connection", (socket) => {
     await gamesCollection.updateOne({ gameCode }, { $set: game });
     io.to(gameCode).emit("gameStateUpdate", game);
   });
+
+  // --- REWRITTEN sellTiles HANDLER ---
   socket.on("sellTiles", async ({ gameCode, tiles }) => {
     const game = await gamesCollection.findOne({ gameCode });
-    const player = game.players.find((p) => p.socketId === socket.id);
-    if (!player || !tiles || !tiles.length) return;
+    const player = game.players[game.currentPlayerIndex];
+
+    // Validation: Ensure it's the right player and the right time to sell.
+    if (player.socketId !== socket.id || game.turnState !== "start") return;
+    if (!tiles || tiles.length === 0) return;
+
     let moneyGained = 0;
-    let soldTileIdentifiers = new Set(tiles.map((t) => `${t.sign}-${t.color}`));
-    player.tiles = player.tiles.filter((tileInHand) => {
-      if (soldTileIdentifiers.has(`${tileInHand.sign}-${tileInHand.color}`)) {
+    const soldTilesForMachine = []; // Array to hold the actual validated tile objects
+    const soldTileIdentifiers = new Set(
+      tiles.map((t) => `${t.sign}-${t.color}`)
+    );
+
+    // Loop through the player's real hand on the server to prevent cheating.
+    const remainingTiles = [];
+    for (const tileInHand of player.tiles) {
+      const identifier = `${tileInHand.sign}-${tileInHand.color}`;
+      if (soldTileIdentifiers.has(identifier)) {
+        // This tile was selected for selling
         moneyGained += tileInHand.isSpecial ? 400 : 200;
-        soldTileIdentifiers.delete(`${tileInHand.sign}-${tileInHand.color}`);
-        return false;
+        soldTilesForMachine.push(tileInHand);
+        soldTileIdentifiers.delete(identifier); // Prevent selling the same tile twice if sent maliciously
+      } else {
+        // This tile was not sold, so keep it
+        remainingTiles.push(tileInHand);
       }
-      return true;
-    });
+    }
+
+    // Abort if the client sent tiles the player doesn't actually own
+    if (soldTilesForMachine.length === 0) return;
+
+    // Update player's state
+    player.tiles = remainingTiles;
     player.money += moneyGained;
+
+    // Add sold tiles back to the machine and shuffle it
+    game.tileMachine.push(...soldTilesForMachine);
+    shuffleMachine(game);
+
     logMessage(
       game,
-      `${player.name} a vendu ${tiles.length} tuile(s) pour ${moneyGained}€.`
+      `${player.name} a vendu ${soldTilesForMachine.length} tuile(s) for ${moneyGained}€. Les tuiles retournent dans la machine.`
     );
+
+    // Save and broadcast the new state
     await gamesCollection.updateOne({ gameCode }, { $set: game });
     io.to(gameCode).emit("gameStateUpdate", game);
   });
+
+  // Unchanged handlers...
   socket.on("placeBid", async ({ gameCode, amount }) => {
     const game = await gamesCollection.findOne({ gameCode });
     if (!game || game.status !== "auction") return;
@@ -488,7 +508,7 @@ async function revealAndAwardTiles(game, winningPlayer) {
     winningPlayer.tiles.push(...game.machineOffer.map((offer) => offer.tile));
     logMessage(
       game,
-      `${winningPlayer.name} a reçu ${winningPlayer.name.length} tuile(s).`
+      `${winningPlayer.name} a reçu ${game.machineOffer.length} tuile(s).`
     );
     if (!checkForWinner(game, winningPlayer)) {
       endTurn(game);

@@ -118,14 +118,15 @@ document.addEventListener("DOMContentLoaded", () => {
     const currentPlayer = gameState.players.find((p) => p.id === myPlayerId);
     if (!currentPlayer) return;
 
-    // Get the actual tile objects to send to the server for validation
     const tilesToSend = selectedTilesForSale.map(
       (index) => currentPlayer.tiles[index]
     );
+
     socket.emit("sellTiles", {
       gameCode: gameState.gameCode,
       tiles: tilesToSend,
     });
+    hideModal(sellModal);
   });
 
   cancelSellBtn.addEventListener("click", () => {
@@ -213,6 +214,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Render Players Panel & Pawns
     renderPlayersAndPawns();
 
+    // --- MODIFIED SECTION ---
     // Render Controls Panel
     playerTurnEl.textContent = `Tour de: ${currentPlayer.name}`;
     if (
@@ -226,23 +228,31 @@ document.addEventListener("DOMContentLoaded", () => {
       ? `Résultat : ${gameState.lastDiceRoll}`
       : "";
 
-    // --- MODIFIED --- Allow rolling on 'start' or 'secondRoll' states
+    const isMyTurn = currentPlayer.id === myPlayerId;
+
+    // Enable/disable roll button
     rollDiceBtn.disabled =
-      currentPlayer.id !== myPlayerId ||
+      !isMyTurn ||
       (gameState.turnState !== "start" && gameState.turnState !== "secondRoll");
+
+    // Show/hide sell button
+    const sellBtn = document.getElementById("sell-tiles-btn");
+    if (sellBtn) {
+      sellBtn.style.display =
+        isMyTurn && gameState.turnState === "start" ? "block" : "none";
+    }
+    // --- END OF MODIFIED SECTION ---
 
     // Render Game Log
     gameLogEl.innerHTML = "";
     (gameState.gameLog || []).forEach((msg) => {
       const p = document.createElement("p");
       p.textContent = msg;
-      gameLogEl.appendChild(p); // Use appendChild for correct order
+      gameLogEl.appendChild(p);
     });
 
-    // Render Machine
+    // Render Machine & Modals
     renderMachine();
-
-    // Render Modals based on game status
     renderModals();
   }
 
@@ -432,9 +442,12 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function openSellModal() {
-    // This function now just opens the modal
-    if (gameState.status === "finished") return;
-    socket.emit("requestSell", { gameCode: gameState.gameCode });
+    // This function no longer needs to contact the server to open.
+    // It just renders the modal with the player's current tiles.
+    if (gameState.status === "finished" || gameState.turnState !== "start")
+      return;
+    renderSellModal();
+    showModal(sellModal);
   }
 
   function renderSellModal() {
