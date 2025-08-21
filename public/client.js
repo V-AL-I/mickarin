@@ -334,25 +334,39 @@ document.addEventListener("DOMContentLoaded", () => {
       auctionTilesEl.appendChild(createTileElement(offer.tile, true));
     });
 
-    const bidder = auctionState.bidders[auctionState.currentBidderIndex];
-    auctionModal.querySelector("#auction-info").textContent = `Au tour de ${
-      bidder.name
-    }. Enchère actuelle: ${auctionState.highestBid}€ par ${
-      auctionState.highestBidderName || "personne"
-    }.`;
+    // Find the full player object from the main players list to get their money
+    const bidderInfo = auctionState.bidders[auctionState.currentBidderIndex];
+    const bidder = gameState.players.find((p) => p.id === bidderInfo.id);
 
+    const auctionInfoEl = auctionModal.querySelector("#auction-info");
     const bidAmountInput = auctionModal.querySelector("#bid-amount");
-    const canAct = bidder.id === myPlayerId;
 
+    const canAct = bidder.id === myPlayerId;
     placeBidBtn.disabled = !canAct;
-    passBidBtn.disabled = !canAct;
     bidAmountInput.disabled = !canAct;
 
-    if (canAct) {
+    // --- MODIFIED LOGIC ---
+    const isObligated = !auctionState.initialBidMade;
+
+    if (canAct && isObligated) {
+      auctionInfoEl.textContent = `C'est votre tour. Vous devez faire la première enchère (100€ minimum).`;
+      bidAmountInput.value = 100;
+      bidAmountInput.min = 100;
+    } else {
+      auctionInfoEl.textContent = `Au tour de ${
+        bidder.name
+      }. Enchère actuelle: ${auctionState.highestBid}€ par ${
+        auctionState.highestBidderName || "personne"
+      }.`;
       bidAmountInput.value = auctionState.highestBid + 100;
       bidAmountInput.min = auctionState.highestBid + 100;
-      bidAmountInput.max = bidder.money;
     }
+
+    bidAmountInput.max = bidder.money;
+
+    // Disable the pass button if the player is obligated and can afford to bid
+    const canAffordMandatoryBid = bidder.money >= 100;
+    passBidBtn.disabled = !canAct || (isObligated && canAffordMandatoryBid);
   }
 
   function renderStealModal() {

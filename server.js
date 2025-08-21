@@ -127,9 +127,9 @@ function logMessage(game, message) {
 
 // --- 5. SOCKET.IO REAL-TIME LOGIC ---
 io.on("connection", (socket) => {
-  console.log(`🔌 User connected: ${socket.id}`);
+  // ... (createGame, joinGame, startGame, etc. are unchanged) ...
 
-  // --- LOBBY MANAGEMENT ---
+  // --- LOBBY MANAGEMENT (UNCHANGED) ---
   socket.on("createGame", async (playerData) => {
     try {
       const gameCode = nanoid(5).toUpperCase();
@@ -208,7 +208,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  // --- CORE GAME ACTIONS ---
+  // --- CORE GAME ACTIONS (UNCHANGED) ---
   socket.on("rollDice", async ({ gameCode }) => {
     const game = await gamesCollection.findOne({ gameCode });
     const player = game.players[game.currentPlayerIndex];
@@ -236,14 +236,11 @@ io.on("connection", (socket) => {
     }
   });
 
-  // --- MODIFIED takeTiles HANDLER ---
   socket.on("takeTiles", async ({ gameCode }) => {
     const game = await gamesCollection.findOne({ gameCode });
     const player = game.players[game.currentPlayerIndex];
     if (player.socketId !== socket.id || game.turnState !== "machineChoice")
       return;
-
-    // Use the new helper function to handle the reveal and award process
     await revealAndAwardTiles(game, player);
   });
 
@@ -268,10 +265,10 @@ io.on("connection", (socket) => {
     if (!player || !tiles || tiles.length === 0) return;
     let moneyGained = 0;
     let soldTileIdentifiers = new Set(tiles.map((t) => `${t.sign}-${t.color}`));
-    player.tiles = player.tiles.filter((tileInHand) => {
-      if (soldTileIdentifiers.has(`${tileInHand.sign}-${tileInHand.color}`)) {
-        moneyGained += tileInHand.isSpecial ? 400 : 200;
-        soldTileIdentifiers.delete(`${tileInHand.sign}-${tileInHand.color}`);
+    player.tiles = player.tiles.filter((tileInHAND) => {
+      if (soldTileIdentifiers.has(`${tileInHAND.sign}-${tileInHAND.color}`)) {
+        moneyGained += tileInHAND.isSpecial ? 400 : 200;
+        soldTileIdentifiers.delete(`${tileInHAND.sign}-${tileInHAND.color}`);
         return false;
       }
       return true;
@@ -293,11 +290,21 @@ io.on("connection", (socket) => {
     const bidderInfo = auction.bidders[auction.currentBidderIndex];
     const player = game.players.find((p) => p.id === bidderInfo.id);
     if (player.socketId !== socket.id) return;
-    const minBid = auction.highestBid + 100;
+
+    // --- MODIFIED --- Enforce the 100€ minimum for the first bid
+    const isInitialBid = !auction.initialBidMade;
+    const minBid = isInitialBid ? 100 : auction.highestBid + 100;
+
     if (amount >= minBid && amount <= player.money && amount % 100 === 0) {
       auction.highestBid = amount;
       auction.highestBidderName = player.name;
       auction.highestBidderId = player.id;
+
+      // --- ADDED --- Once the first bid is made, the obligation is lifted
+      if (isInitialBid) {
+        auction.initialBidMade = true;
+      }
+
       logMessage(game, `${player.name} enchérit à ${amount}€.`);
       advanceAuction(game);
     } else {
@@ -310,6 +317,7 @@ io.on("connection", (socket) => {
     io.to(gameCode).emit("gameStateUpdate", game);
   });
 
+  // --- MODIFIED ---
   socket.on("passBid", async ({ gameCode }) => {
     const game = await gamesCollection.findOne({ gameCode });
     if (!game || game.status !== "auction") return;
@@ -317,6 +325,19 @@ io.on("connection", (socket) => {
     const bidderInfo = auction.bidders[auction.currentBidderIndex];
     const player = game.players.find((p) => p.id === bidderInfo.id);
     if (player.socketId !== socket.id) return;
+
+    // --- ADDED --- Check for mandatory bid obligation
+    if (!auction.initialBidMade) {
+      if (player.money >= 100) {
+        // Player is obligated to bid and can afford it, so reject the pass
+        return socket.emit(
+          "error",
+          "Vous avez initié l'enchère, vous devez faire une offre d'au moins 100€."
+        );
+      }
+      // If player is obligated but cannot afford it, the pass is allowed.
+    }
+
     logMessage(game, `${player.name} passe son tour.`);
     bidderInfo.hasPassed = true;
     advanceAuction(game);
@@ -324,7 +345,7 @@ io.on("connection", (socket) => {
     io.to(gameCode).emit("gameStateUpdate", game);
   });
 
-  // --- DISCONNECT HANDLING ---
+  // --- DISCONNECT HANDLING (UNCHANGED) ---
   socket.on("disconnect", async () => {
     console.log(`🔌 User disconnected: ${socket.id}`);
     const game = await gamesCollection.findOne({
@@ -346,47 +367,33 @@ io.on("connection", (socket) => {
 });
 
 // --- 6. SERVER-SIDE GAME LOGIC FUNCTIONS ---
-
-// =========================================================================
-// --- NEW HELPER FUNCTION FOR REVEALING TILES ---
-// =========================================================================
 async function revealAndAwardTiles(game, winningPlayer) {
   const faceDownOffers = game.machineOffer.filter((offer) => !offer.faceUp);
-
-  // Only do the reveal process if there's at least one face-down tile.
   if (faceDownOffers.length > 0) {
-    // Phase 1: Reveal state
     logMessage(game, "Révélation des tuiles...");
-    game.turnState = "revealing"; // A temporary state to pause client actions
-
+    game.turnState = "revealing";
     game.machineOffer.forEach((offer) => {
       if (!offer.faceUp) {
-        // Use a descriptive color name for the log message
         const colorName = Object.keys(COLORS)
           .find((key) => COLORS[key] === offer.tile.color)
           .toLowerCase();
         logMessage(game, `Tuile révélée : ${offer.tile.sign} ${colorName}`);
-        offer.faceUp = true; // Flip the tile
+        offer.faceUp = true;
       }
     });
-
-    // Send the "revealed" state to all clients and save to DB
     await gamesCollection.updateOne(
       { gameCode: game.gameCode },
       { $set: game }
     );
     io.to(game.gameCode).emit("gameStateUpdate", game);
-
-    // Phase 2: Wait 1.5 seconds, then award the tiles
     setTimeout(async () => {
       const finalGame = await gamesCollection.findOne({
         gameCode: game.gameCode,
       });
-      if (!finalGame) return; // Game might have ended or something went wrong
+      if (!finalGame) return;
       const finalWinner = finalGame.players.find(
         (p) => p.id === winningPlayer.id
       );
-
       finalWinner.tiles.push(
         ...finalGame.machineOffer.map((offer) => offer.tile)
       );
@@ -394,11 +401,9 @@ async function revealAndAwardTiles(game, winningPlayer) {
         finalGame,
         `${finalWinner.name} a reçu ${finalGame.machineOffer.length} tuile(s).`
       );
-
       if (!checkForWinner(finalGame, finalWinner)) {
         endTurn(finalGame);
       }
-
       await gamesCollection.updateOne(
         { gameCode: finalGame.gameCode },
         { $set: finalGame }
@@ -406,13 +411,11 @@ async function revealAndAwardTiles(game, winningPlayer) {
       io.to(finalGame.gameCode).emit("gameStateUpdate", finalGame);
     }, 1500);
   } else {
-    // If no tiles to reveal, award them immediately.
     winningPlayer.tiles.push(...game.machineOffer.map((offer) => offer.tile));
     logMessage(
       game,
       `${winningPlayer.name} a reçu ${game.machineOffer.length} tuile(s).`
     );
-
     if (!checkForWinner(game, winningPlayer)) {
       endTurn(game);
     }
@@ -423,9 +426,6 @@ async function revealAndAwardTiles(game, winningPlayer) {
     io.to(game.gameCode).emit("gameStateUpdate", game);
   }
 }
-// =========================================================================
-// --- END OF NEW HELPER FUNCTION ---
-// =========================================================================
 
 function drawFromMachine(game) {
   if (game.tileMachine.length === 0) {
@@ -439,6 +439,7 @@ function drawFromMachine(game) {
   return newDraw;
 }
 
+// --- MODIFIED ---
 function startAuction(game) {
   game.status = "auction";
   game.turnState = "auction";
@@ -452,18 +453,17 @@ function startAuction(game) {
     highestBid: 0,
     highestBidderName: null,
     highestBidderId: null,
+    initialBidMade: false, // --- ADDED --- New flag to track the mandatory bid
   };
 }
 
 function advanceAuction(game) {
   const auction = game.auctionState;
   const activeBidders = auction.bidders.filter((b) => !b.hasPassed);
-
   if (activeBidders.length <= 1) {
-    endAuction(game); // Make this async to handle the reveal
+    endAuction(game);
     return;
   }
-
   let nextIndex = (auction.currentBidderIndex + 1) % auction.bidders.length;
   while (auction.bidders[nextIndex].hasPassed) {
     nextIndex = (nextIndex + 1) % auction.bidders.length;
@@ -471,7 +471,6 @@ function advanceAuction(game) {
   auction.currentBidderIndex = nextIndex;
 }
 
-// --- MODIFIED endAuction FUNCTION ---
 async function endAuction(game) {
   const auction = game.auctionState;
   if (auction.highestBidderId !== null) {
@@ -481,12 +480,10 @@ async function endAuction(game) {
       game,
       `${winner.name} remporte l'enchère pour ${auction.highestBid}€.`
     );
-
-    // Use the new helper function, which will handle the rest
     await revealAndAwardTiles(game, winner);
   } else {
     logMessage(game, "Personne n'a enchéri. Les tuiles sont défaussées.");
-    endTurn(game); // Just end the turn
+    endTurn(game);
     await gamesCollection.updateOne(
       { gameCode: game.gameCode },
       { $set: game }
