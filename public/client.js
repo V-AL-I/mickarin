@@ -5,7 +5,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let myPlayerId = null;
   let selectedTilesForSale = [];
 
-  // --- DOM ELEMENTS (unchanged) ---
+  // --- DOM ELEMENTS ---
   const mainMenu = document.getElementById("main-menu");
   const createGameBtn = document.getElementById("create-game-btn");
   const joinGameBtn = document.getElementById("join-game-btn");
@@ -35,7 +35,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const placeBidBtn = auctionModal.querySelector("#place-bid-btn");
   const passBidBtn = auctionModal.querySelector("#pass-bid-btn");
 
-  // --- EVENT EMITTERS (unchanged) ---
+  // --- EVENT EMITTERS (UNCHANGED) ---
   createGameBtn.addEventListener("click", () => {
     const playerData = {
       name: document.getElementById("player-name-create").value.trim(),
@@ -109,7 +109,7 @@ document.addEventListener("DOMContentLoaded", () => {
     window.location.reload();
   });
 
-  // --- EVENT LISTENERS (unchanged) ---
+  // --- EVENT LISTENERS (UNCHANGED) ---
   socket.on("connect", () => {
     console.log("Connected to server with ID:", socket.id);
   });
@@ -164,6 +164,7 @@ document.addEventListener("DOMContentLoaded", () => {
       startGameLobbyBtn.classList.add("hidden");
     }
   }
+
   function renderGame() {
     if (!gameState || !gameState.players) return;
     const currentPlayer = gameState.players[gameState.currentPlayerIndex];
@@ -189,15 +190,19 @@ document.addEventListener("DOMContentLoaded", () => {
       sellBtn.style.display =
         isMyTurn && gameState.turnState === "start" ? "block" : "none";
     }
+
+    // --- MODIFIED: Game Log Rendering ---
     gameLogEl.innerHTML = "";
     (gameState.gameLog || []).forEach((msg) => {
       const p = document.createElement("p");
       p.textContent = msg;
-      gameLogEl.appendChild(p);
+      gameLogEl.prepend(p); // Use prepend to show newest messages at the top
     });
+
     renderMachine();
     renderModals();
   }
+
   function renderPlayersAndPawns() {
     playersPanel.innerHTML = "";
     const existingPawns = new Set();
@@ -414,8 +419,6 @@ document.addEventListener("DOMContentLoaded", () => {
     PINK: "#de4ed9",
     PURPLE: "#732da8",
   };
-
-  // --- NEW: Correct display order for the collection grid ---
   const SIGN_ORDER_DISPLAY = [
     "Rat",
     "Buffle",
@@ -430,6 +433,25 @@ document.addEventListener("DOMContentLoaded", () => {
     "Chien",
     "Cochon",
   ];
+
+  // --- NEW HELPER FUNCTION TO FIX THE CRASH ---
+  function isTileSpecial_client(sign, color) {
+    const specialTiles = [
+      { sign: "Dragon", color: COLORS.GREEN },
+      { sign: "Chien", color: COLORS.GREEN },
+      { sign: "Chevre", color: COLORS.PINK },
+      { sign: "Buffle", color: COLORS.PINK },
+      { sign: "Singe", color: COLORS.YELLOW },
+      { sign: "Tigre", color: COLORS.YELLOW },
+      { sign: "Rat", color: COLORS.BLUE },
+      { sign: "Cheval", color: COLORS.BLUE },
+      { sign: "Cochon", color: COLORS.RED },
+      { sign: "Serpent", color: COLORS.RED },
+      { sign: "Chat", color: COLORS.PURPLE },
+      { sign: "Coq", color: COLORS.PURPLE },
+    ];
+    return specialTiles.some((s) => s.sign === sign && s.color === color);
+  }
 
   function createTileElement(tile, faceUp = true) {
     const tileDiv = document.createElement("div");
@@ -446,7 +468,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     return tileDiv;
   }
-
   function initializeBoard() {
     board.innerHTML = "";
     const path = [];
@@ -490,7 +511,7 @@ document.addEventListener("DOMContentLoaded", () => {
     cells.forEach((cell) => board.appendChild(cell));
   }
 
-  // --- MODIFIED: Uses the new display order ---
+  // --- MODIFIED createPlayerTileCollection ---
   function createPlayerTileCollection(player) {
     const collectionContainer = document.getElementById(
       `collection-${player.id}`
@@ -504,23 +525,20 @@ document.addEventListener("DOMContentLoaded", () => {
       COLORS.GREEN,
       COLORS.RED,
     ];
-
-    // Clear any previous grid
     collectionContainer.innerHTML = "";
-
     colorOrder.forEach((color) => {
       const row = document.createElement("div");
       row.className = "player-collection-row";
-      // Use the new SIGN_ORDER_DISPLAY array here
       SIGN_ORDER_DISPLAY.forEach((sign) => {
-        const tile = { sign, color, isSpecial: false };
+        const tile = { sign, color }; // No need for isSpecial here
         const tileDiv = createTileElement(tile, true);
         tileDiv.classList.add("player-collection-tile");
-        // We still need to check if the tile is special for styling purposes
-        const specialCheck = new Tile(sign, color);
-        if (specialCheck.isSpecial) {
+
+        // Use the new client-side helper function instead of the Tile class
+        if (isTileSpecial_client(sign, color)) {
           tileDiv.classList.add("special-tile");
         }
+
         tileDiv.dataset.sign = sign;
         tileDiv.dataset.color = color;
         row.appendChild(tileDiv);
@@ -543,7 +561,6 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
   }
-
   function updatePawnPosition(player, pawnElement) {
     const cell = document.querySelector(`.cell[data-id='${player.position}']`);
     if (!cell) return;
