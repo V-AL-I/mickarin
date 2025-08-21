@@ -8,8 +8,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // --- DOM ELEMENTS ---
   const mainMenu = document.getElementById("main-menu");
   const gameContainer = document.getElementById("game-container");
-  const gameInfoFooter = document.getElementById("game-info-footer"); // New footer element
-  // ... all other DOM element variables are unchanged ...
+  const gameInfoFooter = document.getElementById("game-info-footer");
   const createGameBtn = document.getElementById("create-game-btn");
   const joinGameBtn = document.getElementById("join-game-btn");
   const lobbyModal = document.getElementById("lobby-modal");
@@ -44,7 +43,6 @@ document.addEventListener("DOMContentLoaded", () => {
       yob: parseInt(document.getElementById("player-yob-create").value),
     };
     if (playerData.name && playerData.yob) {
-      // Save info for potential reconnection
       localStorage.setItem("mickarin_player_name", playerData.name);
       localStorage.setItem("mickarin_player_yob", playerData.yob);
       socket.emit("createGame", playerData);
@@ -68,7 +66,6 @@ document.addEventListener("DOMContentLoaded", () => {
       joinData.playerData.name &&
       joinData.playerData.yob
     ) {
-      // Save info for potential reconnection
       localStorage.setItem("mickarin_game_code", joinData.gameCode);
       localStorage.setItem("mickarin_player_name", joinData.playerData.name);
       localStorage.setItem("mickarin_player_yob", joinData.playerData.yob);
@@ -77,7 +74,6 @@ document.addEventListener("DOMContentLoaded", () => {
       alert("Veuillez remplir tous les champs.");
     }
   });
-  // ... other emitters are unchanged ...
   startGameLobbyBtn.addEventListener("click", () => {
     socket.emit("startGame", gameState.gameCode);
   });
@@ -115,9 +111,7 @@ document.addEventListener("DOMContentLoaded", () => {
   cancelSellBtn.addEventListener("click", () => {
     hideModal(sellModal);
   });
-
   document.getElementById("restart-game-btn").addEventListener("click", () => {
-    // --- MODIFIED: Clear storage before reloading ---
     clearReconnectData();
     window.location.reload();
   });
@@ -125,23 +119,20 @@ document.addEventListener("DOMContentLoaded", () => {
   // --- EVENT LISTENERS ---
   socket.on("connect", () => {
     console.log("Connected to server with ID:", socket.id);
-    attemptReconnect(); // Attempt to rejoin a game as soon as we connect
+    attemptReconnect();
   });
   socket.on("error", (message) => {
     console.error("Server error:", message);
     alert(`Erreur: ${message}`);
-    // If a reconnect fails, clear the data and show the main menu
-    if (
-      message === "Game not found." ||
-      message === "Game has already started."
-    ) {
+    if (message === "Game not found." || message.includes("already started")) {
       clearReconnectData();
       mainMenu.classList.remove("hidden");
+      gameContainer.classList.add("hidden");
+      gameInfoFooter.classList.add("hidden");
     }
   });
   socket.on("lobbyUpdate", (newGameState) => {
     gameState = newGameState;
-    // --- MODIFIED: Save game code after creating a game ---
     localStorage.setItem("mickarin_game_code", newGameState.gameCode);
     if (myPlayerId === null) {
       const me = gameState.players.find((p) => p.socketId === socket.id);
@@ -154,19 +145,29 @@ document.addEventListener("DOMContentLoaded", () => {
     mainMenu.classList.add("hidden");
     hideModal(lobbyModal);
     gameContainer.classList.remove("hidden");
-    gameInfoFooter.classList.remove("hidden"); // Show the footer
+    gameInfoFooter.classList.remove("hidden");
     initializeBoard();
     renderGame();
   });
 
-  // --- NEW: A dedicated handler for successful reconnection ---
+  // --- MODIFIED reconnectSuccess HANDLER ---
   socket.on("reconnectSuccess", (reconnectGameState) => {
     console.log("Successfully reconnected to game!");
     gameState = reconnectGameState;
+
+    // --- THIS IS THE FIX ---
+    // We must re-identify ourselves within the newly received game state.
+    const me = gameState.players.find((p) => p.socketId === socket.id);
+    if (me) {
+      myPlayerId = me.id;
+      console.log(`Re-established myPlayerId as: ${myPlayerId}`);
+    }
+    // --- END OF FIX ---
+
     mainMenu.classList.add("hidden");
     gameContainer.classList.remove("hidden");
     gameInfoFooter.classList.remove("hidden");
-    initializeBoard(); // Ensure board is drawn
+    initializeBoard();
     renderGame();
   });
 
@@ -181,7 +182,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const currentPlayer = gameState.players[gameState.currentPlayerIndex];
     const me = gameState.players.find((p) => p.id === myPlayerId);
     if (!me) {
-      // If my player data is not in the game state, something is wrong
       console.error(
         "Could not find my player in game state. Returning to menu."
       );
@@ -189,7 +189,6 @@ document.addEventListener("DOMContentLoaded", () => {
       window.location.reload();
       return;
     }
-
     renderPlayersAndPawns();
     playerTurnEl.textContent = `Tour de: ${currentPlayer.name}`;
     if (
@@ -217,15 +216,12 @@ document.addEventListener("DOMContentLoaded", () => {
       p.textContent = msg;
       gameLogEl.prepend(p);
     });
-
-    // --- ADDED: Update the footer with the game code ---
     const footerCodeEl = document.getElementById("footer-game-code");
     if (footerCodeEl) footerCodeEl.textContent = gameState.gameCode;
-
     renderMachine();
     renderModals();
   }
-  // ... other render functions are unchanged ...
+  // ... all other render and utility functions are unchanged ...
   function renderLobby() {
     mainMenu.classList.add("hidden");
     showModal(lobbyModal);
@@ -443,8 +439,6 @@ document.addEventListener("DOMContentLoaded", () => {
       controlsPanel.insertBefore(sellBtn, rollDiceBtn);
     }
   }
-
-  // --- 5. UTILITY & HELPER FUNCTIONS ---
   const SIGNS = [
     "Singe",
     "Coq",
@@ -627,32 +621,26 @@ document.addEventListener("DOMContentLoaded", () => {
     takeTileBtn.classList.add("hidden");
     relaunchBtn.classList.add("hidden");
   }
-
-  // --- NEW: Reconnection Functions ---
   function attemptReconnect() {
     const gameCode = localStorage.getItem("mickarin_game_code");
     const name = localStorage.getItem("mickarin_player_name");
     const yob = localStorage.getItem("mickarin_player_yob");
-
     if (gameCode && name && yob) {
       console.log(
         `Found saved game data. Attempting to reconnect to ${gameCode}...`
       );
-      mainMenu.classList.add("hidden"); // Hide menu while attempting
+      mainMenu.classList.add("hidden");
       socket.emit("joinGame", {
         gameCode,
         playerData: { name, yob: parseInt(yob) },
       });
     }
   }
-
   function clearReconnectData() {
     localStorage.removeItem("mickarin_game_code");
     localStorage.removeItem("mickarin_player_name");
     localStorage.removeItem("mickarin_player_yob");
     console.log("Cleared reconnection data.");
   }
-
-  // --- INITIALIZE ---
   setupSellButton();
 });
