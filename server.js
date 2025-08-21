@@ -208,7 +208,7 @@ io.on("connection", (socket) => {
     const player = game.players[game.currentPlayerIndex];
     if (player.socketId !== socket.id) return;
 
-    // --- Path for the SECOND roll after stealing ---
+    // Path for the SECOND roll after stealing
     if (game.turnState === "secondRoll") {
       const diceRoll = Math.floor(Math.random() * 6) + 1;
       game.lastDiceRoll = diceRoll;
@@ -217,12 +217,12 @@ io.on("connection", (socket) => {
         game,
         `${player.name} fait un ${diceRoll} pour son second lancer et termine son tour.`
       );
-      endTurn(game); // End turn immediately, no cell action
+      endTurn(game);
       await gamesCollection.updateOne({ gameCode }, { $set: game });
       return io.to(gameCode).emit("gameStateUpdate", game);
     }
 
-    // --- Path for a NORMAL first roll ---
+    // Path for a NORMAL first roll
     if (game.turnState !== "start") return;
 
     const diceRoll = Math.floor(Math.random() * 6) + 1;
@@ -247,22 +247,36 @@ io.on("connection", (socket) => {
     }
     player.position = newPosition;
 
-    if (overtakenPlayers.size > 0) {
-      const victims = Array.from(overtakenPlayers);
+    // --- MODIFIED LOGIC ---
+    // Check if any of the overtaken players have tiles BEFORE starting the steal sequence.
+    const victims = Array.from(overtakenPlayers);
+    const victimsWithTiles = victims.filter((v) => v.tiles.length > 0);
+
+    if (victimsWithTiles.length > 0) {
+      // --- STEAL PATH ---
+      // At least one victim has tiles, so proceed with stealing.
       logMessage(
         game,
-        `${player.name} a dépassé ${victims
+        `${player.name} a dépassé ${victimsWithTiles
           .map((p) => p.name)
           .join(", ")} et va pouvoir voler des tuiles !`
       );
-      game.status = "steal"; // Use a status to trigger the modal on the client
+      game.status = "steal";
       game.turnState = "stealing";
       game.stealState = {
         thiefId: player.id,
-        victimQueue: victims.map((v) => v.id),
+        victimQueue: victimsWithTiles.map((v) => v.id), // Only queue victims with tiles
       };
     } else {
-      // No one was overtaken, proceed with normal cell action
+      // --- NORMAL PATH ---
+      // Either no one was overtaken, or those who were have no tiles.
+      if (victims.length > 0) {
+        logMessage(
+          game,
+          `${player.name} a dépassé des joueurs, mais personne n'a de tuiles à voler. Le tour continue.`
+        );
+      }
+
       const cell = { type: player.position % 3 === 1 ? "money" : "color" };
       if (cell.type === "money") {
         player.money += 100;
@@ -282,49 +296,38 @@ io.on("connection", (socket) => {
     io.to(gameCode).emit("gameStateUpdate", game);
   });
 
-  // --- NEW stealTile HANDLER ---
+  // Unchanged handlers...
   socket.on("stealTile", async ({ gameCode, victimId, tileIndex }) => {
     const game = await gamesCollection.findOne({ gameCode });
     if (game.turnState !== "stealing") return;
-
     const thief = game.players.find((p) => p.id === game.stealState.thiefId);
     if (thief.socketId !== socket.id) return;
-
     const victim = game.players.find((p) => p.id === victimId);
     if (!victim || !victim.tiles[tileIndex]) return;
-
     const stolenTile = victim.tiles.splice(tileIndex, 1)[0];
     thief.tiles.push(stolenTile);
     logMessage(
       game,
       `${thief.name} a volé une tuile ${stolenTile.sign} à ${victim.name}.`
     );
-
-    // Remove the processed victim from the queue
     game.stealState.victimQueue.shift();
-
     if (game.stealState.victimQueue.length === 0) {
-      // All stealing is done
       logMessage(
         game,
         `${thief.name} a fini de voler. Il doit maintenant relancer le dé.`
       );
-      game.status = "in-progress"; // Reset status
+      game.status = "in-progress";
       game.turnState = "secondRoll";
       game.stealState = null;
     }
-    // If there are more victims, the state remains 'stealing', and the client will re-render with the next victim
-
     if (!checkForWinner(game, thief)) {
       await gamesCollection.updateOne({ gameCode }, { $set: game });
       io.to(gameCode).emit("gameStateUpdate", game);
     } else {
       await gamesCollection.updateOne({ gameCode }, { $set: game });
-      io.to(gameCode).emit("gameStateUpdate", game); // Send final state before ending
+      io.to(gameCode).emit("gameStateUpdate", game);
     }
   });
-
-  // Unchanged handlers...
   socket.on("takeTiles", async ({ gameCode }) => {
     const game = await gamesCollection.findOne({ gameCode });
     const player = game.players[game.currentPlayerIndex];
@@ -485,7 +488,7 @@ async function revealAndAwardTiles(game, winningPlayer) {
     winningPlayer.tiles.push(...game.machineOffer.map((offer) => offer.tile));
     logMessage(
       game,
-      `${winningPlayer.name} a reçu ${game.machineOffer.length} tuile(s).`
+      `${winningPlayer.name} a reçu ${winningPlayer.name.length} tuile(s).`
     );
     if (!checkForWinner(game, winningPlayer)) {
       endTurn(game);
