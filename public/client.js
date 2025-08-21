@@ -3,53 +3,39 @@ document.addEventListener("DOMContentLoaded", () => {
   const socket = io();
   let gameState = {};
   let myPlayerId = null;
-  let selectedTilesForSale = []; // Client-side state for UI only
+  let selectedTilesForSale = [];
 
-  // --- DOM ELEMENTS ---
-  // Main Menu & Lobby
+  // --- DOM ELEMENTS (unchanged) ---
   const mainMenu = document.getElementById("main-menu");
   const createGameBtn = document.getElementById("create-game-btn");
   const joinGameBtn = document.getElementById("join-game-btn");
   const lobbyModal = document.getElementById("lobby-modal");
-  const startGameLobbyBtn = document.getElementById("start-game-btn"); // Renamed for clarity
-
-  // Game Containers
+  const startGameLobbyBtn = document.getElementById("start-game-btn");
   const gameContainer = document.getElementById("game-container");
   const board = document.getElementById("board");
   const playersPanel = document.getElementById("players-panel");
   const gameLogEl = document.getElementById("game-log");
-
-  // Controls
   const controlsPanel = document.getElementById("controls-panel");
   const playerTurnEl = document.getElementById("player-turn");
   const playerMoneyEl = document.getElementById("player-money");
   const rollDiceBtn = document.getElementById("roll-dice-btn");
   const diceResultEl = document.getElementById("dice-result");
-
-  // Machine
   const machineTilesEl = document.getElementById("machine-tiles");
   const takeTileBtn = document.getElementById("take-tile-btn");
   const relaunchBtn = document.getElementById("relaunch-btn");
-
-  // Modals
   const modalBackdrop = document.getElementById("modal-backdrop");
   const auctionModal = document.getElementById("auction-modal");
   const stealModal = document.getElementById("steal-modal");
   const sellModal = document.getElementById("sell-modal");
   const winnerModal = document.getElementById("winner-modal");
-
-  // Sell Modal specific
   const sellTilesContainer = document.getElementById("sell-tiles-container");
   const sellTotalEl = document.getElementById("sell-total");
   const confirmSellBtn = document.getElementById("confirm-sell-btn");
   const cancelSellBtn = document.getElementById("cancel-sell-btn");
-
-  // Auction Modal specific
   const placeBidBtn = auctionModal.querySelector("#place-bid-btn");
   const passBidBtn = auctionModal.querySelector("#pass-bid-btn");
 
-  // --- 1. PRE-GAME: MENU & LOBBY ACTIONS (EMITTERS) ---
-
+  // --- EVENT EMITTERS (unchanged) ---
   createGameBtn.addEventListener("click", () => {
     const playerData = {
       name: document.getElementById("player-name-create").value.trim(),
@@ -61,7 +47,6 @@ document.addEventListener("DOMContentLoaded", () => {
       alert("Veuillez remplir tous les champs.");
     }
   });
-
   joinGameBtn.addEventListener("click", () => {
     const joinData = {
       gameCode: document
@@ -83,103 +68,80 @@ document.addEventListener("DOMContentLoaded", () => {
       alert("Veuillez remplir tous les champs.");
     }
   });
-
   startGameLobbyBtn.addEventListener("click", () => {
     socket.emit("startGame", gameState.gameCode);
   });
-
-  // --- 2. IN-GAME ACTIONS (EMITTERS) ---
-
   rollDiceBtn.addEventListener("click", () => {
     rollDiceBtn.disabled = true;
     socket.emit("rollDice", { gameCode: gameState.gameCode });
   });
-
   takeTileBtn.addEventListener("click", () => {
     hideMachineControls();
     socket.emit("takeTiles", { gameCode: gameState.gameCode });
   });
-
   relaunchBtn.addEventListener("click", () => {
     hideMachineControls();
     socket.emit("relaunchMachine", { gameCode: gameState.gameCode });
   });
-
   placeBidBtn.addEventListener("click", () => {
     const amount = parseInt(document.getElementById("bid-amount").value);
     socket.emit("placeBid", { gameCode: gameState.gameCode, amount });
   });
-
   passBidBtn.addEventListener("click", () => {
     socket.emit("passBid", { gameCode: gameState.gameCode });
   });
-
   confirmSellBtn.addEventListener("click", () => {
     const currentPlayer = gameState.players.find((p) => p.id === myPlayerId);
     if (!currentPlayer) return;
-
     const tilesToSend = selectedTilesForSale.map(
       (index) => currentPlayer.tiles[index]
     );
-
     socket.emit("sellTiles", {
       gameCode: gameState.gameCode,
       tiles: tilesToSend,
     });
     hideModal(sellModal);
   });
-
   cancelSellBtn.addEventListener("click", () => {
     hideModal(sellModal);
   });
-
   document.getElementById("restart-game-btn").addEventListener("click", () => {
-    // This simply reloads the page to go back to the main menu
     window.location.reload();
   });
 
-  // --- 3. SOCKET EVENT HANDLERS (LISTENERS) ---
-
+  // --- EVENT LISTENERS (unchanged) ---
   socket.on("connect", () => {
     console.log("Connected to server with ID:", socket.id);
   });
-
   socket.on("error", (message) => {
     console.error("Server error:", message);
     alert(`Erreur: ${message}`);
   });
-
-  // Handles joining, creating, and other players joining
   socket.on("lobbyUpdate", (newGameState) => {
     gameState = newGameState;
-    // Find our player ID if we don't have it yet
     if (myPlayerId === null) {
       const me = gameState.players.find((p) => p.socketId === socket.id);
       if (me) myPlayerId = me.id;
     }
     renderLobby();
   });
-
   socket.on("gameStarted", (initialGameState) => {
     gameState = initialGameState;
     mainMenu.classList.add("hidden");
     hideModal(lobbyModal);
     gameContainer.classList.remove("hidden");
-    initializeBoard(); // Draw the board once
-    renderGame(); // Full initial render
+    initializeBoard();
+    renderGame();
   });
-
   socket.on("gameStateUpdate", (newGameState) => {
     gameState = newGameState;
     renderGame();
   });
 
-  // --- 4. RENDER & UI FUNCTIONS ---
-
+  // --- RENDER FUNCTIONS ---
   function renderLobby() {
     mainMenu.classList.add("hidden");
     showModal(lobbyModal);
-
     document.getElementById("lobby-game-code").textContent = gameState.gameCode;
     const playerList = document.getElementById("lobby-player-list");
     playerList.innerHTML = "";
@@ -191,8 +153,6 @@ document.addEventListener("DOMContentLoaded", () => {
       li.style.color = player.color;
       playerList.appendChild(li);
     });
-
-    // Show start button only to the host when there are 2+ players
     const me = gameState.players.find((p) => p.socketId === socket.id);
     if (
       me &&
@@ -204,18 +164,11 @@ document.addEventListener("DOMContentLoaded", () => {
       startGameLobbyBtn.classList.add("hidden");
     }
   }
-
   function renderGame() {
     if (!gameState || !gameState.players) return;
-
     const currentPlayer = gameState.players[gameState.currentPlayerIndex];
     const me = gameState.players.find((p) => p.id === myPlayerId);
-
-    // Render Players Panel & Pawns
     renderPlayersAndPawns();
-
-    // --- MODIFIED SECTION ---
-    // Render Controls Panel
     playerTurnEl.textContent = `Tour de: ${currentPlayer.name}`;
     if (
       gameState.turnState === "secondRoll" &&
@@ -227,59 +180,40 @@ document.addEventListener("DOMContentLoaded", () => {
     diceResultEl.textContent = gameState.lastDiceRoll
       ? `Résultat : ${gameState.lastDiceRoll}`
       : "";
-
     const isMyTurn = currentPlayer.id === myPlayerId;
-
-    // Enable/disable roll button
     rollDiceBtn.disabled =
       !isMyTurn ||
       (gameState.turnState !== "start" && gameState.turnState !== "secondRoll");
-
-    // Show/hide sell button
     const sellBtn = document.getElementById("sell-tiles-btn");
     if (sellBtn) {
       sellBtn.style.display =
         isMyTurn && gameState.turnState === "start" ? "block" : "none";
     }
-    // --- END OF MODIFIED SECTION ---
-
-    // Render Game Log
     gameLogEl.innerHTML = "";
     (gameState.gameLog || []).forEach((msg) => {
       const p = document.createElement("p");
       p.textContent = msg;
       gameLogEl.appendChild(p);
     });
-
-    // Render Machine & Modals
     renderMachine();
     renderModals();
   }
-
   function renderPlayersAndPawns() {
     playersPanel.innerHTML = "";
     const existingPawns = new Set();
-
     gameState.players.forEach((player) => {
-      // Create or update player info panel
       let playerInfoDiv = document.getElementById(`player-info-${player.id}`);
       if (!playerInfoDiv) {
         playerInfoDiv = document.createElement("div");
         playerInfoDiv.id = `player-info-${player.id}`;
         playerInfoDiv.className = "player-info";
         playerInfoDiv.style.borderColor = player.color;
-        playerInfoDiv.innerHTML = `
-          <h4>${player.name}</h4>
-          <p>Argent: <span class="money">${player.money}</span>€</p>
-          <div class="player-tile-collection" id="collection-${player.id}"></div>
-        `;
+        playerInfoDiv.innerHTML = `<h4>${player.name}</h4><p>Argent: <span class="money">${player.money}</span>€</p><div class="player-tile-collection" id="collection-${player.id}"></div>`;
         playersPanel.appendChild(playerInfoDiv);
-        createPlayerTileCollection(player); // Create the grid layout once
+        createPlayerTileCollection(player);
       }
       playerInfoDiv.querySelector(".money").textContent = player.money;
-      updatePlayerTileCollection(player); // Update owned status
-
-      // Create or update pawn
+      updatePlayerTileCollection(player);
       let pawn = document.getElementById(`pawn-${player.id}`);
       if (!pawn) {
         pawn = document.createElement("div");
@@ -291,15 +225,12 @@ document.addEventListener("DOMContentLoaded", () => {
       updatePawnPosition(player, pawn);
       existingPawns.add(pawn.id);
     });
-
-    // Clean up pawns of disconnected players if any
     document.querySelectorAll(".pawn").forEach((p) => {
       if (!existingPawns.has(p.id)) {
         p.remove();
       }
     });
   }
-
   function renderMachine() {
     machineTilesEl.innerHTML = "";
     if (gameState.machineOffer) {
@@ -308,7 +239,6 @@ document.addEventListener("DOMContentLoaded", () => {
         machineTilesEl.appendChild(tileDiv);
       });
     }
-
     if (
       gameState.turnState === "machineChoice" &&
       gameState.currentPlayerIndex === myPlayerId
@@ -318,12 +248,8 @@ document.addEventListener("DOMContentLoaded", () => {
       hideMachineControls();
     }
   }
-
   function renderModals() {
-    // Hide all modals first
     [auctionModal, stealModal, sellModal, winnerModal].forEach(hideModal);
-
-    // Show the correct modal based on state
     switch (gameState.status) {
       case "auction":
         renderAuctionModal();
@@ -333,17 +259,12 @@ document.addEventListener("DOMContentLoaded", () => {
         renderStealModal();
         showModal(stealModal);
         break;
-      case "sell": // This is triggered by a player action, not a game state
-        renderSellModal();
-        showModal(sellModal);
-        break;
       case "finished":
         renderWinnerModal();
         showModal(winnerModal);
         break;
     }
   }
-
   function renderAuctionModal() {
     const auctionState = gameState.auctionState;
     const auctionTilesEl = auctionModal.querySelector("#auction-tiles");
@@ -351,21 +272,14 @@ document.addEventListener("DOMContentLoaded", () => {
     gameState.machineOffer.forEach((offer) => {
       auctionTilesEl.appendChild(createTileElement(offer.tile, true));
     });
-
-    // Find the full player object from the main players list to get their money
     const bidderInfo = auctionState.bidders[auctionState.currentBidderIndex];
     const bidder = gameState.players.find((p) => p.id === bidderInfo.id);
-
     const auctionInfoEl = auctionModal.querySelector("#auction-info");
     const bidAmountInput = auctionModal.querySelector("#bid-amount");
-
     const canAct = bidder.id === myPlayerId;
     placeBidBtn.disabled = !canAct;
     bidAmountInput.disabled = !canAct;
-
-    // --- MODIFIED LOGIC ---
     const isObligated = !auctionState.initialBidMade;
-
     if (canAct && isObligated) {
       auctionInfoEl.textContent = `C'est votre tour. Vous devez faire la première enchère (100€ minimum).`;
       bidAmountInput.value = 100;
@@ -379,47 +293,34 @@ document.addEventListener("DOMContentLoaded", () => {
       bidAmountInput.value = auctionState.highestBid + 100;
       bidAmountInput.min = auctionState.highestBid + 100;
     }
-
     bidAmountInput.max = bidder.money;
-
-    // Disable the pass button if the player is obligated and can afford to bid
     const canAffordMandatoryBid = bidder.money >= 100;
     passBidBtn.disabled = !canAct || (isObligated && canAffordMandatoryBid);
   }
-
   function renderStealModal() {
     const stealState = gameState.stealState;
     if (!stealState) return;
-
     const thief = gameState.players.find((p) => p.id === stealState.thiefId);
-    // The victim is always the first one in the queue
     const victim = gameState.players.find(
       (p) => p.id === stealState.victimQueue[0]
     );
-
     if (!thief || !victim) {
       hideModal(stealModal);
       return;
     }
-
     stealModal.querySelector(
       "#steal-info"
     ).textContent = `${thief.name}, choisissez une tuile à voler à ${victim.name}:`;
     const stealOptions = stealModal.querySelector("#steal-options");
     stealOptions.innerHTML = "";
-
-    // If I am the thief, show clickable tiles
     if (thief.id === myPlayerId) {
       if (victim.tiles.length === 0) {
         stealOptions.innerHTML = `<p>${victim.name} n'a pas de tuiles à voler.</p>`;
-        // This is a rare case, but we should handle it. The server will auto-advance.
-        // We can emit a "pass" steal if needed, but the server handles empty inventories gracefully.
       } else {
         victim.tiles.forEach((tile, index) => {
-          const tileDiv = createTileElement(tile, true); // Always show face up for the thief
+          const tileDiv = createTileElement(tile, true);
           tileDiv.style.cursor = "pointer";
           tileDiv.onclick = () => {
-            // Disable all options immediately to prevent double clicks
             stealOptions
               .querySelectorAll(".tile")
               .forEach((t) => (t.onclick = null));
@@ -433,37 +334,28 @@ document.addEventListener("DOMContentLoaded", () => {
         });
       }
     } else {
-      // If I am not the thief, show face-down tiles for suspense
       victim.tiles.forEach(() => {
-        const tileDiv = createTileElement({}, false); // A face-down tile
+        const tileDiv = createTileElement({}, false);
         stealOptions.appendChild(tileDiv);
       });
     }
   }
-
   function openSellModal() {
-    // This function no longer needs to contact the server to open.
-    // It just renders the modal with the player's current tiles.
     if (gameState.status === "finished" || gameState.turnState !== "start")
       return;
     renderSellModal();
     showModal(sellModal);
   }
-
   function renderSellModal() {
     const me = gameState.players.find((p) => p.id === myPlayerId);
     if (!me) return;
-
     selectedTilesForSale = [];
     let sellTotal = 0;
-
     sellTilesContainer.innerHTML = "";
-
     me.tiles.forEach((tile, index) => {
       const tileDiv = createTileElement(tile, true);
       tileDiv.style.cursor = "pointer";
       tileDiv.onclick = () => {
-        // Toggle selection locally for UI feedback
         const selectionIndex = selectedTilesForSale.indexOf(index);
         if (selectionIndex > -1) {
           selectedTilesForSale.splice(selectionIndex, 1);
@@ -479,19 +371,15 @@ document.addEventListener("DOMContentLoaded", () => {
       };
       sellTilesContainer.appendChild(tileDiv);
     });
-
     sellTotalEl.textContent = "Total: 0€";
     confirmSellBtn.disabled = true;
   }
-
   function renderWinnerModal() {
     const winner = gameState.winner;
     document.getElementById(
       "winner-message"
     ).textContent = `${winner.name} a gagné ${winner.reason} !`;
   }
-
-  // Create a sell button and add it to the UI
   function setupSellButton() {
     let sellBtn = document.getElementById("sell-tiles-btn");
     if (!sellBtn) {
@@ -503,8 +391,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // --- 5. UTILITY & HELPER FUNCTIONS (Mostly from original file) ---
-
+  // --- 5. UTILITY & HELPER FUNCTIONS ---
   const SIGNS = [
     "Singe",
     "Coq",
@@ -528,11 +415,26 @@ document.addEventListener("DOMContentLoaded", () => {
     PURPLE: "#732da8",
   };
 
+  // --- NEW: Correct display order for the collection grid ---
+  const SIGN_ORDER_DISPLAY = [
+    "Rat",
+    "Buffle",
+    "Tigre",
+    "Chat",
+    "Dragon",
+    "Serpent",
+    "Cheval",
+    "Chevre",
+    "Singe",
+    "Coq",
+    "Chien",
+    "Cochon",
+  ];
+
   function createTileElement(tile, faceUp = true) {
     const tileDiv = document.createElement("div");
     tileDiv.className = "tile";
-    tileDiv.style.backgroundColor = tile.color;
-
+    if (tile.color) tileDiv.style.backgroundColor = tile.color;
     if (faceUp) {
       tileDiv.style.backgroundImage = `url('images/${tile.sign}.png')`;
       tileDiv.title = tile.sign;
@@ -569,24 +471,18 @@ document.addEventListener("DOMContentLoaded", () => {
       Coq: COLORS.PURPLE,
       Chat: COLORS.PURPLE,
     };
-
     path.forEach((p, i) => {
       const index = p[0] * 10 + p[1];
       cells[index].className = "cell path";
       cells[index].dataset.id = i;
-
       const signIndex = Math.floor(i / 3) % SIGNS.length;
       const animalSign = SIGNS[signIndex];
-
       cells[index].dataset.sign = animalSign;
       cells[index].style.backgroundColor = animalColors[animalSign];
-
       if (i % 3 === 1) {
-        // Money cells
         cells[index].dataset.type = "money";
         cells[index].style.backgroundImage = "url('images/Yuan.png')";
       } else {
-        // Animal cells
         cells[index].dataset.type = "color";
         cells[index].style.backgroundImage = `url('images/${animalSign}.png')`;
       }
@@ -594,6 +490,7 @@ document.addEventListener("DOMContentLoaded", () => {
     cells.forEach((cell) => board.appendChild(cell));
   }
 
+  // --- MODIFIED: Uses the new display order ---
   function createPlayerTileCollection(player) {
     const collectionContainer = document.getElementById(
       `collection-${player.id}`
@@ -607,13 +504,23 @@ document.addEventListener("DOMContentLoaded", () => {
       COLORS.GREEN,
       COLORS.RED,
     ];
+
+    // Clear any previous grid
+    collectionContainer.innerHTML = "";
+
     colorOrder.forEach((color) => {
       const row = document.createElement("div");
       row.className = "player-collection-row";
-      SIGNS.forEach((sign) => {
-        const tile = { sign, color, isSpecial: false }; // isSpecial isn't needed here
+      // Use the new SIGN_ORDER_DISPLAY array here
+      SIGN_ORDER_DISPLAY.forEach((sign) => {
+        const tile = { sign, color, isSpecial: false };
         const tileDiv = createTileElement(tile, true);
         tileDiv.classList.add("player-collection-tile");
+        // We still need to check if the tile is special for styling purposes
+        const specialCheck = new Tile(sign, color);
+        if (specialCheck.isSpecial) {
+          tileDiv.classList.add("special-tile");
+        }
         tileDiv.dataset.sign = sign;
         tileDiv.dataset.color = color;
         row.appendChild(tileDiv);
@@ -646,25 +553,20 @@ document.addEventListener("DOMContentLoaded", () => {
     pawnElement.style.top = `${cellRect.top - boardRect.top + 5}px`;
     pawnElement.style.left = `${cellRect.left - boardRect.left + offset}px`;
   }
-
   function showModal(modal) {
     modalBackdrop.classList.remove("hidden");
     modal.classList.remove("hidden");
   }
-
   function hideModal(modal) {
     modal.classList.add("hidden");
-    // Only hide backdrop if no other modals are open
     if (document.querySelectorAll(".modal:not(.hidden)").length === 0) {
       modalBackdrop.classList.add("hidden");
     }
   }
-
   function showMachineControls() {
     takeTileBtn.classList.remove("hidden");
     relaunchBtn.classList.remove("hidden");
   }
-
   function hideMachineControls() {
     takeTileBtn.classList.add("hidden");
     relaunchBtn.classList.add("hidden");
