@@ -123,7 +123,12 @@ function logMessage(game, message) {
   if (game.gameLog.length > 50) game.gameLog.pop();
 }
 
-// --- NEW HELPER ---
+// --- NEW HELPER: Teaches the server about the board layout ---
+function getSignForPosition(position) {
+  const signIndex = Math.floor(position / 3) % SIGNS.length;
+  return SIGNS[signIndex];
+}
+
 function shuffleMachine(game) {
   const machine = game.tileMachine;
   for (let i = machine.length - 1; i > 0; i--) {
@@ -211,11 +216,13 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Core game logic handlers...
+  // --- MODIFIED rollDice HANDLER ---
   socket.on("rollDice", async ({ gameCode }) => {
     const game = await gamesCollection.findOne({ gameCode });
     const player = game.players[game.currentPlayerIndex];
     if (player.socketId !== socket.id) return;
+
+    // Path for the SECOND roll after stealing
     if (game.turnState === "secondRoll") {
       const diceRoll = Math.floor(Math.random() * 6) + 1;
       game.lastDiceRoll = diceRoll;
@@ -228,12 +235,21 @@ io.on("connection", (socket) => {
       await gamesCollection.updateOne({ gameCode }, { $set: game });
       return io.to(gameCode).emit("gameStateUpdate", game);
     }
+
     if (game.turnState !== "start") return;
+
     const diceRoll = Math.floor(Math.random() * 6) + 1;
     game.lastDiceRoll = diceRoll;
     logMessage(game, `${player.name} a fait un ${diceRoll}.`);
+
     const oldPosition = player.position;
     const newPosition = (oldPosition + diceRoll) % BOARD_SIZE;
+    player.position = newPosition;
+
+    // --- NEW: Handle Rent Payment FIRST ---
+    handleRent(game, player);
+
+    // --- Overtake Detection ---
     const overtakenPlayers = new Set();
     for (let i = 1; i <= diceRoll; i++) {
       const pathPosition = (oldPosition + i) % BOARD_SIZE;
@@ -246,9 +262,10 @@ io.on("connection", (socket) => {
         }
       });
     }
-    player.position = newPosition;
+
     const victims = Array.from(overtakenPlayers);
     const victimsWithTiles = victims.filter((v) => v.tiles.length > 0);
+
     if (victimsWithTiles.length > 0) {
       logMessage(
         game,
@@ -269,6 +286,7 @@ io.on("connection", (socket) => {
           `${player.name} a dépassé des joueurs, mais personne n'a de tuiles à voler. Le tour continue.`
         );
       }
+
       const cell = { type: player.position % 3 === 1 ? "money" : "color" };
       if (cell.type === "money") {
         player.money += 100;
@@ -283,9 +301,12 @@ io.on("connection", (socket) => {
         drawFromMachine(game);
       }
     }
+
     await gamesCollection.updateOne({ gameCode }, { $set: game });
     io.to(gameCode).emit("gameStateUpdate", game);
   });
+
+  // Unchanged handlers...
   socket.on("stealTile", async ({ gameCode, victimId, tileIndex }) => {
     const game = await gamesCollection.findOne({ gameCode });
     if (game.turnState !== "stealing") return;
@@ -338,59 +359,39 @@ io.on("connection", (socket) => {
     await gamesCollection.updateOne({ gameCode }, { $set: game });
     io.to(gameCode).emit("gameStateUpdate", game);
   });
-
-  // --- REWRITTEN sellTiles HANDLER ---
   socket.on("sellTiles", async ({ gameCode, tiles }) => {
     const game = await gamesCollection.findOne({ gameCode });
     const player = game.players[game.currentPlayerIndex];
-
-    // Validation: Ensure it's the right player and the right time to sell.
     if (player.socketId !== socket.id || game.turnState !== "start") return;
     if (!tiles || tiles.length === 0) return;
-
     let moneyGained = 0;
-    const soldTilesForMachine = []; // Array to hold the actual validated tile objects
+    const soldTilesForMachine = [];
     const soldTileIdentifiers = new Set(
       tiles.map((t) => `${t.sign}-${t.color}`)
     );
-
-    // Loop through the player's real hand on the server to prevent cheating.
     const remainingTiles = [];
     for (const tileInHand of player.tiles) {
       const identifier = `${tileInHand.sign}-${tileInHand.color}`;
       if (soldTileIdentifiers.has(identifier)) {
-        // This tile was selected for selling
         moneyGained += tileInHand.isSpecial ? 400 : 200;
         soldTilesForMachine.push(tileInHand);
-        soldTileIdentifiers.delete(identifier); // Prevent selling the same tile twice if sent maliciously
+        soldTileIdentifiers.delete(identifier);
       } else {
-        // This tile was not sold, so keep it
         remainingTiles.push(tileInHand);
       }
     }
-
-    // Abort if the client sent tiles the player doesn't actually own
     if (soldTilesForMachine.length === 0) return;
-
-    // Update player's state
     player.tiles = remainingTiles;
     player.money += moneyGained;
-
-    // Add sold tiles back to the machine and shuffle it
     game.tileMachine.push(...soldTilesForMachine);
     shuffleMachine(game);
-
     logMessage(
       game,
       `${player.name} a vendu ${soldTilesForMachine.length} tuile(s) for ${moneyGained}€. Les tuiles retournent dans la machine.`
     );
-
-    // Save and broadcast the new state
     await gamesCollection.updateOne({ gameCode }, { $set: game });
     io.to(gameCode).emit("gameStateUpdate", game);
   });
-
-  // Unchanged handlers...
   socket.on("placeBid", async ({ gameCode, amount }) => {
     const game = await gamesCollection.findOne({ gameCode });
     if (!game || game.status !== "auction") return;
@@ -460,7 +461,60 @@ io.on("connection", (socket) => {
 });
 
 // --- 6. SERVER-SIDE GAME LOGIC FUNCTIONS ---
-// All remaining functions are unchanged...
+
+// --- NEW RENT LOGIC ---
+function handleRent(game, currentPlayer) {
+  const currentPosition = currentPlayer.position;
+  const currentSign = getSignForPosition(currentPosition);
+
+  // Find all potential landlords for this sign
+  const landlords = game.players.filter((p) => {
+    if (p.id === currentPlayer.id || p.isDisconnected) return false;
+    const ownedSignTiles = p.tiles.filter((tile) => tile.sign === currentSign);
+    return ownedSignTiles.length >= 3;
+  });
+
+  if (landlords.length === 0) {
+    return; // No rent to pay
+  }
+
+  let finalLandlord = null;
+
+  if (landlords.length === 1) {
+    finalLandlord = landlords[0];
+  } else {
+    // Conflict: multiple players have 3+ tiles. Find the one with the special tile.
+    finalLandlord = landlords.find((landlord) =>
+      landlord.tiles.some((tile) => tile.sign === currentSign && tile.isSpecial)
+    );
+  }
+
+  if (!finalLandlord) {
+    // This happens if there's a conflict and NO ONE has the special tile. No rent is paid.
+    logMessage(
+      game,
+      `Conflit de propriété pour le signe ${currentSign}. Aucun loyer n'est payé.`
+    );
+    return;
+  }
+
+  // Calculate rent amount
+  const landlordHasSpecial = finalLandlord.tiles.some(
+    (tile) => tile.sign === currentSign && tile.isSpecial
+  );
+  const rentAmount = landlordHasSpecial ? 400 : 200;
+
+  // Transfer money
+  currentPlayer.money -= rentAmount;
+  finalLandlord.money += rentAmount;
+
+  logMessage(
+    game,
+    `${currentPlayer.name} paie un loyer de ${rentAmount}€ à ${finalLandlord.name} pour le signe ${currentSign}.`
+  );
+}
+
+// Unchanged functions...
 async function revealAndAwardTiles(game, winningPlayer) {
   const faceDownOffers = game.machineOffer.filter((offer) => !offer.faceUp);
   if (faceDownOffers.length > 0) {

@@ -546,8 +546,6 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function initializeBoard() {
-    // This logic is static, so it only needs to run once.
-    // (Copied directly from your original createBoard function)
     board.innerHTML = "";
     const path = [];
     for (let i = 0; i < 10; i++) path.push([0, i]);
@@ -571,21 +569,25 @@ document.addEventListener("DOMContentLoaded", () => {
       Coq: COLORS.PURPLE,
       Chat: COLORS.PURPLE,
     };
+
     path.forEach((p, i) => {
       const index = p[0] * 10 + p[1];
       cells[index].className = "cell path";
       cells[index].dataset.id = i;
+
+      const signIndex = Math.floor(i / 3) % SIGNS.length;
+      const animalSign = SIGNS[signIndex];
+
+      cells[index].dataset.sign = animalSign;
+      cells[index].style.backgroundColor = animalColors[animalSign];
+
       if (i % 3 === 1) {
+        // Money cells
         cells[index].dataset.type = "money";
-        const signIndex = Math.floor((i - 1) / 3) % SIGNS.length;
-        cells[index].style.backgroundColor = animalColors[SIGNS[signIndex]];
         cells[index].style.backgroundImage = "url('images/Yuan.png')";
       } else {
-        const signIndex = Math.floor(i / 3) % SIGNS.length;
-        const animalSign = SIGNS[signIndex];
-        cells[index].style.backgroundColor = animalColors[animalSign];
+        // Animal cells
         cells[index].dataset.type = "color";
-        cells[index].dataset.sign = animalSign;
         cells[index].style.backgroundImage = `url('images/${animalSign}.png')`;
       }
     });
