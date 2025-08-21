@@ -7,11 +7,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // --- DOM ELEMENTS ---
   const mainMenu = document.getElementById("main-menu");
+  const gameContainer = document.getElementById("game-container");
+  const gameInfoFooter = document.getElementById("game-info-footer"); // New footer element
+  // ... all other DOM element variables are unchanged ...
   const createGameBtn = document.getElementById("create-game-btn");
   const joinGameBtn = document.getElementById("join-game-btn");
   const lobbyModal = document.getElementById("lobby-modal");
   const startGameLobbyBtn = document.getElementById("start-game-btn");
-  const gameContainer = document.getElementById("game-container");
   const board = document.getElementById("board");
   const playersPanel = document.getElementById("players-panel");
   const gameLogEl = document.getElementById("game-log");
@@ -35,13 +37,16 @@ document.addEventListener("DOMContentLoaded", () => {
   const placeBidBtn = auctionModal.querySelector("#place-bid-btn");
   const passBidBtn = auctionModal.querySelector("#pass-bid-btn");
 
-  // --- EVENT EMITTERS (UNCHANGED) ---
+  // --- EVENT EMITTERS ---
   createGameBtn.addEventListener("click", () => {
     const playerData = {
       name: document.getElementById("player-name-create").value.trim(),
       yob: parseInt(document.getElementById("player-yob-create").value),
     };
     if (playerData.name && playerData.yob) {
+      // Save info for potential reconnection
+      localStorage.setItem("mickarin_player_name", playerData.name);
+      localStorage.setItem("mickarin_player_yob", playerData.yob);
       socket.emit("createGame", playerData);
     } else {
       alert("Veuillez remplir tous les champs.");
@@ -63,11 +68,16 @@ document.addEventListener("DOMContentLoaded", () => {
       joinData.playerData.name &&
       joinData.playerData.yob
     ) {
+      // Save info for potential reconnection
+      localStorage.setItem("mickarin_game_code", joinData.gameCode);
+      localStorage.setItem("mickarin_player_name", joinData.playerData.name);
+      localStorage.setItem("mickarin_player_yob", joinData.playerData.yob);
       socket.emit("joinGame", joinData);
     } else {
       alert("Veuillez remplir tous les champs.");
     }
   });
+  // ... other emitters are unchanged ...
   startGameLobbyBtn.addEventListener("click", () => {
     socket.emit("startGame", gameState.gameCode);
   });
@@ -105,20 +115,34 @@ document.addEventListener("DOMContentLoaded", () => {
   cancelSellBtn.addEventListener("click", () => {
     hideModal(sellModal);
   });
+
   document.getElementById("restart-game-btn").addEventListener("click", () => {
+    // --- MODIFIED: Clear storage before reloading ---
+    clearReconnectData();
     window.location.reload();
   });
 
-  // --- EVENT LISTENERS (UNCHANGED) ---
+  // --- EVENT LISTENERS ---
   socket.on("connect", () => {
     console.log("Connected to server with ID:", socket.id);
+    attemptReconnect(); // Attempt to rejoin a game as soon as we connect
   });
   socket.on("error", (message) => {
     console.error("Server error:", message);
     alert(`Erreur: ${message}`);
+    // If a reconnect fails, clear the data and show the main menu
+    if (
+      message === "Game not found." ||
+      message === "Game has already started."
+    ) {
+      clearReconnectData();
+      mainMenu.classList.remove("hidden");
+    }
   });
   socket.on("lobbyUpdate", (newGameState) => {
     gameState = newGameState;
+    // --- MODIFIED: Save game code after creating a game ---
+    localStorage.setItem("mickarin_game_code", newGameState.gameCode);
     if (myPlayerId === null) {
       const me = gameState.players.find((p) => p.socketId === socket.id);
       if (me) myPlayerId = me.id;
@@ -130,15 +154,78 @@ document.addEventListener("DOMContentLoaded", () => {
     mainMenu.classList.add("hidden");
     hideModal(lobbyModal);
     gameContainer.classList.remove("hidden");
+    gameInfoFooter.classList.remove("hidden"); // Show the footer
     initializeBoard();
     renderGame();
   });
+
+  // --- NEW: A dedicated handler for successful reconnection ---
+  socket.on("reconnectSuccess", (reconnectGameState) => {
+    console.log("Successfully reconnected to game!");
+    gameState = reconnectGameState;
+    mainMenu.classList.add("hidden");
+    gameContainer.classList.remove("hidden");
+    gameInfoFooter.classList.remove("hidden");
+    initializeBoard(); // Ensure board is drawn
+    renderGame();
+  });
+
   socket.on("gameStateUpdate", (newGameState) => {
     gameState = newGameState;
     renderGame();
   });
 
   // --- RENDER FUNCTIONS ---
+  function renderGame() {
+    if (!gameState || !gameState.players) return;
+    const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+    const me = gameState.players.find((p) => p.id === myPlayerId);
+    if (!me) {
+      // If my player data is not in the game state, something is wrong
+      console.error(
+        "Could not find my player in game state. Returning to menu."
+      );
+      clearReconnectData();
+      window.location.reload();
+      return;
+    }
+
+    renderPlayersAndPawns();
+    playerTurnEl.textContent = `Tour de: ${currentPlayer.name}`;
+    if (
+      gameState.turnState === "secondRoll" &&
+      currentPlayer.id === myPlayerId
+    ) {
+      playerTurnEl.textContent += " (Relancez le dé !)";
+    }
+    playerMoneyEl.textContent = `${me.money}€`;
+    diceResultEl.textContent = gameState.lastDiceRoll
+      ? `Résultat : ${gameState.lastDiceRoll}`
+      : "";
+    const isMyTurn = currentPlayer.id === myPlayerId;
+    rollDiceBtn.disabled =
+      !isMyTurn ||
+      (gameState.turnState !== "start" && gameState.turnState !== "secondRoll");
+    const sellBtn = document.getElementById("sell-tiles-btn");
+    if (sellBtn) {
+      sellBtn.style.display =
+        isMyTurn && gameState.turnState === "start" ? "block" : "none";
+    }
+    gameLogEl.innerHTML = "";
+    (gameState.gameLog || []).forEach((msg) => {
+      const p = document.createElement("p");
+      p.textContent = msg;
+      gameLogEl.prepend(p);
+    });
+
+    // --- ADDED: Update the footer with the game code ---
+    const footerCodeEl = document.getElementById("footer-game-code");
+    if (footerCodeEl) footerCodeEl.textContent = gameState.gameCode;
+
+    renderMachine();
+    renderModals();
+  }
+  // ... other render functions are unchanged ...
   function renderLobby() {
     mainMenu.classList.add("hidden");
     showModal(lobbyModal);
@@ -164,45 +251,6 @@ document.addEventListener("DOMContentLoaded", () => {
       startGameLobbyBtn.classList.add("hidden");
     }
   }
-
-  function renderGame() {
-    if (!gameState || !gameState.players) return;
-    const currentPlayer = gameState.players[gameState.currentPlayerIndex];
-    const me = gameState.players.find((p) => p.id === myPlayerId);
-    renderPlayersAndPawns();
-    playerTurnEl.textContent = `Tour de: ${currentPlayer.name}`;
-    if (
-      gameState.turnState === "secondRoll" &&
-      currentPlayer.id === myPlayerId
-    ) {
-      playerTurnEl.textContent += " (Relancez le dé !)";
-    }
-    playerMoneyEl.textContent = `${me.money}€`;
-    diceResultEl.textContent = gameState.lastDiceRoll
-      ? `Résultat : ${gameState.lastDiceRoll}`
-      : "";
-    const isMyTurn = currentPlayer.id === myPlayerId;
-    rollDiceBtn.disabled =
-      !isMyTurn ||
-      (gameState.turnState !== "start" && gameState.turnState !== "secondRoll");
-    const sellBtn = document.getElementById("sell-tiles-btn");
-    if (sellBtn) {
-      sellBtn.style.display =
-        isMyTurn && gameState.turnState === "start" ? "block" : "none";
-    }
-
-    // --- MODIFIED: Game Log Rendering ---
-    gameLogEl.innerHTML = "";
-    (gameState.gameLog || []).forEach((msg) => {
-      const p = document.createElement("p");
-      p.textContent = msg;
-      gameLogEl.prepend(p); // Use prepend to show newest messages at the top
-    });
-
-    renderMachine();
-    renderModals();
-  }
-
   function renderPlayersAndPawns() {
     playersPanel.innerHTML = "";
     const existingPawns = new Set();
@@ -433,8 +481,6 @@ document.addEventListener("DOMContentLoaded", () => {
     "Chien",
     "Cochon",
   ];
-
-  // --- NEW HELPER FUNCTION TO FIX THE CRASH ---
   function isTileSpecial_client(sign, color) {
     const specialTiles = [
       { sign: "Dragon", color: COLORS.GREEN },
@@ -452,7 +498,6 @@ document.addEventListener("DOMContentLoaded", () => {
     ];
     return specialTiles.some((s) => s.sign === sign && s.color === color);
   }
-
   function createTileElement(tile, faceUp = true) {
     const tileDiv = document.createElement("div");
     tileDiv.className = "tile";
@@ -510,8 +555,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     cells.forEach((cell) => board.appendChild(cell));
   }
-
-  // --- MODIFIED createPlayerTileCollection ---
   function createPlayerTileCollection(player) {
     const collectionContainer = document.getElementById(
       `collection-${player.id}`
@@ -530,15 +573,12 @@ document.addEventListener("DOMContentLoaded", () => {
       const row = document.createElement("div");
       row.className = "player-collection-row";
       SIGN_ORDER_DISPLAY.forEach((sign) => {
-        const tile = { sign, color }; // No need for isSpecial here
+        const tile = { sign, color };
         const tileDiv = createTileElement(tile, true);
         tileDiv.classList.add("player-collection-tile");
-
-        // Use the new client-side helper function instead of the Tile class
         if (isTileSpecial_client(sign, color)) {
           tileDiv.classList.add("special-tile");
         }
-
         tileDiv.dataset.sign = sign;
         tileDiv.dataset.color = color;
         row.appendChild(tileDiv);
@@ -546,7 +586,6 @@ document.addEventListener("DOMContentLoaded", () => {
       collectionContainer.appendChild(row);
     });
   }
-
   function updatePlayerTileCollection(player) {
     const allCollectionTiles = document.querySelectorAll(
       `#collection-${player.id} .player-collection-tile`
@@ -587,6 +626,31 @@ document.addEventListener("DOMContentLoaded", () => {
   function hideMachineControls() {
     takeTileBtn.classList.add("hidden");
     relaunchBtn.classList.add("hidden");
+  }
+
+  // --- NEW: Reconnection Functions ---
+  function attemptReconnect() {
+    const gameCode = localStorage.getItem("mickarin_game_code");
+    const name = localStorage.getItem("mickarin_player_name");
+    const yob = localStorage.getItem("mickarin_player_yob");
+
+    if (gameCode && name && yob) {
+      console.log(
+        `Found saved game data. Attempting to reconnect to ${gameCode}...`
+      );
+      mainMenu.classList.add("hidden"); // Hide menu while attempting
+      socket.emit("joinGame", {
+        gameCode,
+        playerData: { name, yob: parseInt(yob) },
+      });
+    }
+  }
+
+  function clearReconnectData() {
+    localStorage.removeItem("mickarin_game_code");
+    localStorage.removeItem("mickarin_player_name");
+    localStorage.removeItem("mickarin_player_yob");
+    console.log("Cleared reconnection data.");
   }
 
   // --- INITIALIZE ---

@@ -347,3 +347,25 @@ button:hover {
   color: white;
   border: none;
 }
+
+#game-info-footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  background-color: rgba(0, 0, 0, 0.75);
+  color: white;
+  text-align: center;
+  padding: 5px 0;
+  font-size: 14px;
+  z-index: 200; /* Ensure it's on top of other elements */
+}
+
+#game-info-footer p {
+  margin: 0;
+}
+
+#game-info-footer b {
+  color: #ffd000; /* yellow */
+  user-select: all; /* Make it easy to copy the code */
+}

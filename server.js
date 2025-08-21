@@ -16,7 +16,6 @@ const DB_NAME = "mickarin";
 // --- 2. DATABASE CONNECTION ---
 let db;
 let gamesCollection;
-
 MongoClient.connect(MONGO_URL, { useUnifiedTopology: true })
   .then((client) => {
     console.log("✅ Successfully connected to MongoDB.");
@@ -66,7 +65,6 @@ const PLAYER_COLORS = [
   "#99582a",
   "#6a4c93",
 ];
-
 class Tile {
   constructor(sign, color) {
     this.sign = sign;
@@ -91,7 +89,6 @@ class Tile {
     return specialTiles.some((s) => s.sign === sign && s.color === color);
   }
 }
-
 function createPlayer(id, name, yob, socketId) {
   return {
     id,
@@ -122,13 +119,10 @@ function logMessage(game, message) {
   game.gameLog.unshift(message);
   if (game.gameLog.length > 50) game.gameLog.pop();
 }
-
-// --- NEW HELPER: Teaches the server about the board layout ---
 function getSignForPosition(position) {
   const signIndex = Math.floor(position / 3) % SIGNS.length;
   return SIGNS[signIndex];
 }
-
 function shuffleMachine(game) {
   const machine = game.tileMachine;
   for (let i = machine.length - 1; i > 0; i--) {
@@ -139,7 +133,6 @@ function shuffleMachine(game) {
 
 // --- 5. SOCKET.IO REAL-TIME LOGIC ---
 io.on("connection", (socket) => {
-  // Unchanged lobby logic...
   socket.on("createGame", async (playerData) => {
     try {
       const gameCode = nanoid(5).toUpperCase();
@@ -159,21 +152,39 @@ io.on("connection", (socket) => {
       socket.emit("error", "Could not create game.");
     }
   });
+
+  // --- MODIFIED joinGame HANDLER ---
   socket.on("joinGame", async ({ gameCode, playerData }) => {
     try {
       const game = await gamesCollection.findOne({ gameCode });
       if (!game) return socket.emit("error", "Game not found.");
-      const disconnectedPlayer = game.players.find(
-        (p) => p.name === playerData.name && p.isDisconnected
+
+      const existingPlayer = game.players.find(
+        (p) =>
+          p.name === playerData.name &&
+          p.id === yobToId(playerData.yob, game.players)
       );
-      if (disconnectedPlayer) {
-        disconnectedPlayer.isDisconnected = false;
-        disconnectedPlayer.socketId = socket.id;
+
+      if (existingPlayer) {
+        // --- RECONNECTION PATH ---
+        if (game.status === "lobby" && !existingPlayer.isDisconnected) {
+          return socket.emit(
+            "error",
+            "A player with that name is already in the lobby."
+          );
+        }
+        existingPlayer.isDisconnected = false;
+        existingPlayer.socketId = socket.id;
+        logMessage(game, `${existingPlayer.name} s'est reconnecté.`);
       } else {
+        // --- NEW PLAYER PATH ---
         if (game.status !== "lobby")
           return socket.emit("error", "Game has already started.");
         if (game.players.length >= 8)
           return socket.emit("error", "Game is full.");
+        if (game.players.some((p) => p.name === playerData.name))
+          return socket.emit("error", "Player name is already taken.");
+
         const newPlayer = createPlayer(
           game.players.length,
           playerData.name,
@@ -182,18 +193,28 @@ io.on("connection", (socket) => {
         );
         game.players.push(newPlayer);
       }
+
       await gamesCollection.updateOne(
         { gameCode },
         { $set: { players: game.players } }
       );
       socket.join(gameCode);
-      const event = game.status === "lobby" ? "lobbyUpdate" : "gameStateUpdate";
-      io.to(gameCode).emit(event, game);
+
+      if (game.status === "lobby") {
+        io.to(gameCode).emit("lobbyUpdate", game);
+      } else {
+        // Send a specific event for successful reconnection to this one client
+        socket.emit("reconnectSuccess", game);
+        // Send a general update to everyone else
+        socket.to(gameCode).emit("gameStateUpdate", game);
+      }
     } catch (err) {
       console.error(err);
       socket.emit("error", "Could not join game.");
     }
   });
+
+  // ... rest of the server is unchanged ...
   socket.on("startGame", async (gameCode) => {
     try {
       const game = await gamesCollection.findOne({ gameCode });
@@ -215,14 +236,10 @@ io.on("connection", (socket) => {
       console.error(err);
     }
   });
-
-  // --- MODIFIED rollDice HANDLER ---
   socket.on("rollDice", async ({ gameCode }) => {
     const game = await gamesCollection.findOne({ gameCode });
     const player = game.players[game.currentPlayerIndex];
     if (player.socketId !== socket.id) return;
-
-    // Path for the SECOND roll after stealing
     if (game.turnState === "secondRoll") {
       const diceRoll = Math.floor(Math.random() * 6) + 1;
       game.lastDiceRoll = diceRoll;
@@ -235,21 +252,14 @@ io.on("connection", (socket) => {
       await gamesCollection.updateOne({ gameCode }, { $set: game });
       return io.to(gameCode).emit("gameStateUpdate", game);
     }
-
     if (game.turnState !== "start") return;
-
     const diceRoll = Math.floor(Math.random() * 6) + 1;
     game.lastDiceRoll = diceRoll;
     logMessage(game, `${player.name} a fait un ${diceRoll}.`);
-
     const oldPosition = player.position;
     const newPosition = (oldPosition + diceRoll) % BOARD_SIZE;
     player.position = newPosition;
-
-    // --- NEW: Handle Rent Payment FIRST ---
     handleRent(game, player);
-
-    // --- Overtake Detection ---
     const overtakenPlayers = new Set();
     for (let i = 1; i <= diceRoll; i++) {
       const pathPosition = (oldPosition + i) % BOARD_SIZE;
@@ -262,10 +272,8 @@ io.on("connection", (socket) => {
         }
       });
     }
-
     const victims = Array.from(overtakenPlayers);
     const victimsWithTiles = victims.filter((v) => v.tiles.length > 0);
-
     if (victimsWithTiles.length > 0) {
       logMessage(
         game,
@@ -286,7 +294,6 @@ io.on("connection", (socket) => {
           `${player.name} a dépassé des joueurs, mais personne n'a de tuiles à voler. Le tour continue.`
         );
       }
-
       const cell = { type: player.position % 3 === 1 ? "money" : "color" };
       if (cell.type === "money") {
         player.money += 100;
@@ -301,12 +308,9 @@ io.on("connection", (socket) => {
         drawFromMachine(game);
       }
     }
-
     await gamesCollection.updateOne({ gameCode }, { $set: game });
     io.to(gameCode).emit("gameStateUpdate", game);
   });
-
-  // Unchanged handlers...
   socket.on("stealTile", async ({ gameCode, victimId, tileIndex }) => {
     const game = await gamesCollection.findOne({ gameCode });
     if (game.turnState !== "stealing") return;
@@ -458,63 +462,52 @@ io.on("connection", (socket) => {
       }
     }
   });
+
+  function yobToId(yob, players) {
+    for (const player of players) {
+      if (player.id === (yob % 12) * 3) return player.id;
+    }
+    return -1;
+  }
 });
-
-// --- 6. SERVER-SIDE GAME LOGIC FUNCTIONS ---
-
-// --- NEW RENT LOGIC ---
+// ... all other server-side functions (handleRent, revealAndAwardTiles, etc.) are unchanged and should remain.
 function handleRent(game, currentPlayer) {
   const currentPosition = currentPlayer.position;
   const currentSign = getSignForPosition(currentPosition);
-
-  // Find all potential landlords for this sign
   const landlords = game.players.filter((p) => {
     if (p.id === currentPlayer.id || p.isDisconnected) return false;
     const ownedSignTiles = p.tiles.filter((tile) => tile.sign === currentSign);
     return ownedSignTiles.length >= 3;
   });
-
   if (landlords.length === 0) {
-    return; // No rent to pay
+    return;
   }
-
   let finalLandlord = null;
-
   if (landlords.length === 1) {
     finalLandlord = landlords[0];
   } else {
-    // Conflict: multiple players have 3+ tiles. Find the one with the special tile.
     finalLandlord = landlords.find((landlord) =>
       landlord.tiles.some((tile) => tile.sign === currentSign && tile.isSpecial)
     );
   }
-
   if (!finalLandlord) {
-    // This happens if there's a conflict and NO ONE has the special tile. No rent is paid.
     logMessage(
       game,
       `Conflit de propriété pour le signe ${currentSign}. Aucun loyer n'est payé.`
     );
     return;
   }
-
-  // Calculate rent amount
   const landlordHasSpecial = finalLandlord.tiles.some(
     (tile) => tile.sign === currentSign && tile.isSpecial
   );
   const rentAmount = landlordHasSpecial ? 400 : 200;
-
-  // Transfer money
   currentPlayer.money -= rentAmount;
   finalLandlord.money += rentAmount;
-
   logMessage(
     game,
     `${currentPlayer.name} paie un loyer de ${rentAmount}€ à ${finalLandlord.name} pour le signe ${currentSign}.`
   );
 }
-
-// Unchanged functions...
 async function revealAndAwardTiles(game, winningPlayer) {
   const faceDownOffers = game.machineOffer.filter((offer) => !offer.faceUp);
   if (faceDownOffers.length > 0) {
