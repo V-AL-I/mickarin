@@ -10,7 +10,7 @@ const server = http.createServer(app);
 const io = new Server(server);
 
 const PORT = process.env.PORT || 3000;
-const MONGO_URL = "mongodb://localhost:2707";
+const MONGO_URL = "mongodb://localhost:27017";
 const DB_NAME = "mickarin";
 
 // --- 2. DATABASE CONNECTION ---
