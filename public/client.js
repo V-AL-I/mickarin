@@ -204,7 +204,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // Master render function, called after every state update
   function renderGame() {
     if (!gameState || !gameState.players) return;
 
@@ -216,19 +215,28 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Render Controls Panel
     playerTurnEl.textContent = `Tour de: ${currentPlayer.name}`;
+    if (
+      gameState.turnState === "secondRoll" &&
+      currentPlayer.id === myPlayerId
+    ) {
+      playerTurnEl.textContent += " (Relancez le dé !)";
+    }
     playerMoneyEl.textContent = `${me.money}€`;
     diceResultEl.textContent = gameState.lastDiceRoll
       ? `Résultat : ${gameState.lastDiceRoll}`
       : "";
+
+    // --- MODIFIED --- Allow rolling on 'start' or 'secondRoll' states
     rollDiceBtn.disabled =
-      currentPlayer.id !== myPlayerId || gameState.turnState !== "start";
+      currentPlayer.id !== myPlayerId ||
+      (gameState.turnState !== "start" && gameState.turnState !== "secondRoll");
 
     // Render Game Log
     gameLogEl.innerHTML = "";
-    gameState.gameLog.forEach((msg) => {
+    (gameState.gameLog || []).forEach((msg) => {
       const p = document.createElement("p");
       p.textContent = msg;
-      gameLogEl.appendChild(p);
+      gameLogEl.appendChild(p); // Use appendChild for correct order
     });
 
     // Render Machine
@@ -371,8 +379,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function renderStealModal() {
     const stealState = gameState.stealState;
+    if (!stealState) return;
+
     const thief = gameState.players.find((p) => p.id === stealState.thiefId);
-    const victim = gameState.players.find((p) => p.id === stealState.victimId);
+    // The victim is always the first one in the queue
+    const victim = gameState.players.find(
+      (p) => p.id === stealState.victimQueue[0]
+    );
+
+    if (!thief || !victim) {
+      hideModal(stealModal);
+      return;
+    }
 
     stealModal.querySelector(
       "#steal-info"
@@ -380,25 +398,34 @@ document.addEventListener("DOMContentLoaded", () => {
     const stealOptions = stealModal.querySelector("#steal-options");
     stealOptions.innerHTML = "";
 
+    // If I am the thief, show clickable tiles
     if (thief.id === myPlayerId) {
-      victim.tiles.forEach((tile, index) => {
-        const tileDiv = createTileElement(tile);
-        tileDiv.style.cursor = "pointer";
-        tileDiv.onclick = () => {
-          // Send the chosen tile's index to the server
-          socket.emit("stealTile", {
-            gameCode: gameState.gameCode,
-            victimId: victim.id,
-            tileIndex: index,
-          });
-        };
-        stealOptions.appendChild(tileDiv);
-      });
+      if (victim.tiles.length === 0) {
+        stealOptions.innerHTML = `<p>${victim.name} n'a pas de tuiles à voler.</p>`;
+        // This is a rare case, but we should handle it. The server will auto-advance.
+        // We can emit a "pass" steal if needed, but the server handles empty inventories gracefully.
+      } else {
+        victim.tiles.forEach((tile, index) => {
+          const tileDiv = createTileElement(tile, true); // Always show face up for the thief
+          tileDiv.style.cursor = "pointer";
+          tileDiv.onclick = () => {
+            // Disable all options immediately to prevent double clicks
+            stealOptions
+              .querySelectorAll(".tile")
+              .forEach((t) => (t.onclick = null));
+            socket.emit("stealTile", {
+              gameCode: gameState.gameCode,
+              victimId: victim.id,
+              tileIndex: index,
+            });
+          };
+          stealOptions.appendChild(tileDiv);
+        });
+      }
     } else {
-      // Just display face-down tiles for non-thieves
+      // If I am not the thief, show face-down tiles for suspense
       victim.tiles.forEach(() => {
-        const tileDiv = document.createElement("div");
-        tileDiv.className = "tile face-down";
+        const tileDiv = createTileElement({}, false); // A face-down tile
         stealOptions.appendChild(tileDiv);
       });
     }
