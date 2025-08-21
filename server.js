@@ -89,10 +89,13 @@ class Tile {
     return specialTiles.some((s) => s.sign === sign && s.color === color);
   }
 }
+
+// --- MODIFIED createPlayer FUNCTION ---
 function createPlayer(id, name, yob, socketId) {
   return {
     id,
     name,
+    yob, // --- ADDED: Store the year of birth to use as a unique identifier
     socketId,
     color: PLAYER_COLORS[id],
     money: STARTING_MONEY,
@@ -101,6 +104,7 @@ function createPlayer(id, name, yob, socketId) {
     isDisconnected: false,
   };
 }
+
 function createAndShuffleTileMachine() {
   let machine = [];
   for (const sign of SIGNS) {
@@ -153,37 +157,44 @@ io.on("connection", (socket) => {
     }
   });
 
-  // --- MODIFIED joinGame HANDLER ---
+  // --- REWRITTEN joinGame HANDLER ---
   socket.on("joinGame", async ({ gameCode, playerData }) => {
     try {
       const game = await gamesCollection.findOne({ gameCode });
       if (!game) return socket.emit("error", "Game not found.");
 
+      // Correctly identify an existing player by name AND year of birth
       const existingPlayer = game.players.find(
-        (p) =>
-          p.name === playerData.name &&
-          p.id === yobToId(playerData.yob, game.players)
+        (p) => p.name === playerData.name && p.yob === playerData.yob
       );
 
       if (existingPlayer) {
         // --- RECONNECTION PATH ---
-        if (game.status === "lobby" && !existingPlayer.isDisconnected) {
+        if (!existingPlayer.isDisconnected && game.status !== "lobby") {
           return socket.emit(
             "error",
-            "A player with that name is already in the lobby."
+            "This player is already actively connected to the game."
           );
         }
+
         existingPlayer.isDisconnected = false;
         existingPlayer.socketId = socket.id;
         logMessage(game, `${existingPlayer.name} s'est reconnecté.`);
       } else {
         // --- NEW PLAYER PATH ---
-        if (game.status !== "lobby")
+        // Block NEW players from joining a started game
+        if (game.status !== "lobby") {
           return socket.emit("error", "Game has already started.");
+        }
         if (game.players.length >= 8)
           return socket.emit("error", "Game is full.");
-        if (game.players.some((p) => p.name === playerData.name))
-          return socket.emit("error", "Player name is already taken.");
+        // Prevent duplicate names in the lobby
+        if (game.players.some((p) => p.name === playerData.name)) {
+          return socket.emit(
+            "error",
+            "A player with this name is already in the lobby. Use a different name or check your year of birth."
+          );
+        }
 
         const newPlayer = createPlayer(
           game.players.length,
@@ -203,9 +214,9 @@ io.on("connection", (socket) => {
       if (game.status === "lobby") {
         io.to(gameCode).emit("lobbyUpdate", game);
       } else {
-        // Send a specific event for successful reconnection to this one client
+        // Reconnecting player gets the full state to resume their game
         socket.emit("reconnectSuccess", game);
-        // Send a general update to everyone else
+        // Everyone else gets a normal update (e.g., seeing the player's status change from disconnected)
         socket.to(gameCode).emit("gameStateUpdate", game);
       }
     } catch (err) {
@@ -462,15 +473,8 @@ io.on("connection", (socket) => {
       }
     }
   });
-
-  function yobToId(yob, players) {
-    for (const player of players) {
-      if (player.id === (yob % 12) * 3) return player.id;
-    }
-    return -1;
-  }
 });
-// ... all other server-side functions (handleRent, revealAndAwardTiles, etc.) are unchanged and should remain.
+// ... all other server-side functions (handleRent, revealAndAwardTiles, etc.) are unchanged.
 function handleRent(game, currentPlayer) {
   const currentPosition = currentPlayer.position;
   const currentSign = getSignForPosition(currentPosition);
