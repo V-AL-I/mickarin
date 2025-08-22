@@ -491,29 +491,22 @@ io.on("connection", (socket) => {
     await gamesCollection.updateOne({ gameCode }, { $set: game });
     broadcastGameState(game);
   });
-
-  // --- NEW: Leave Lobby Handler ---
   socket.on("leaveLobby", async ({ gameCode }) => {
     const game = await gamesCollection.findOne({ gameCode });
     if (!game || game.status !== "lobby") return;
-
     const leavingPlayerIndex = game.players.findIndex(
       (p) => p.socketId === socket.id
     );
     if (leavingPlayerIndex === -1) return;
-
     const isHostLeaving = game.hostId === socket.id;
-
     if (isHostLeaving) {
       logMessage(game, "The host has left the lobby. The game is disbanded.");
-      // Notify all other clients that the lobby is closed
       socket
         .to(gameCode)
         .emit(
           "lobbyClosed",
           "The host has left, and the lobby has been closed."
         );
-      // Delete the game from the database
       await gamesCollection.deleteOne({ gameCode });
     } else {
       const leavingPlayer = game.players[leavingPlayerIndex];
@@ -523,11 +516,9 @@ io.on("connection", (socket) => {
         { gameCode },
         { $set: { players: game.players } }
       );
-      // Send an update to the remaining players
       io.to(gameCode).emit("lobbyUpdate", game);
     }
   });
-
   socket.on("disconnect", async () => {
     console.log(`🔌 User disconnected: ${socket.id}`);
     const game = await gamesCollection.findOne({
@@ -550,7 +541,6 @@ io.on("connection", (socket) => {
 });
 
 // --- 6. SERVER-SIDE GAME LOGIC FUNCTIONS ---
-// ... functions are all correct and unchanged ...
 function startTurnTimer(game) {
   clearTurnTimer(game.gameCode);
   game.turnEndTime = Date.now() + TURN_DURATION;
@@ -761,6 +751,7 @@ async function endAuction(game) {
     broadcastGameState(game);
   }
 }
+
 function endTurn(game) {
   game.currentPlayerIndex = (game.currentPlayerIndex + 1) % game.players.length;
   game.turnState = "start";
@@ -774,6 +765,7 @@ function endTurn(game) {
   );
   startTurnTimer(game);
 }
+
 function checkForWinner(game, player) {
   const signCounts = player.tiles.reduce((acc, tile) => {
     acc[tile.sign] = (acc[tile.sign] || 0) + 1;
