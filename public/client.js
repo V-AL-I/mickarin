@@ -4,11 +4,14 @@ document.addEventListener("DOMContentLoaded", () => {
   let gameState = {};
   let myPlayerId = null;
   let selectedTilesForSale = [];
+  let turnTimerInterval = null; // --- NEW: Variable to hold our timer interval
 
   // --- DOM ELEMENTS ---
   const mainMenu = document.getElementById("main-menu");
   const gameContainer = document.getElementById("game-container");
   const gameInfoFooter = document.getElementById("game-info-footer");
+  const turnTimerEl = document.getElementById("turn-timer"); // --- NEW: Timer display element
+  // ... other DOM elements are unchanged ...
   const createGameBtn = document.getElementById("create-game-btn");
   const joinGameBtn = document.getElementById("join-game-btn");
   const lobbyModal = document.getElementById("lobby-modal");
@@ -36,7 +39,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const placeBidBtn = auctionModal.querySelector("#place-bid-btn");
   const passBidBtn = auctionModal.querySelector("#pass-bid-btn");
 
-  // --- EVENT EMITTERS ---
+  // --- EVENT EMITTERS (UNCHANGED) ---
   createGameBtn.addEventListener("click", () => {
     const playerData = {
       name: document.getElementById("player-name-create").value.trim(),
@@ -116,7 +119,7 @@ document.addEventListener("DOMContentLoaded", () => {
     window.location.reload();
   });
 
-  // --- EVENT LISTENERS ---
+  // --- EVENT LISTENERS (UNCHANGED) ---
   socket.on("connect", () => {
     console.log("Connected to server with ID:", socket.id);
     attemptReconnect();
@@ -135,7 +138,7 @@ document.addEventListener("DOMContentLoaded", () => {
     gameState = newGameState;
     localStorage.setItem("mickarin_game_code", newGameState.gameCode);
     if (myPlayerId === null) {
-      const me = gameState.players.find((p) => p.socketId === socket.id);
+      const me = newGameState.players.find((p) => p.socketId === socket.id);
       if (me) myPlayerId = me.id;
     }
     renderLobby();
@@ -149,28 +152,19 @@ document.addEventListener("DOMContentLoaded", () => {
     initializeBoard();
     renderGame();
   });
-
-  // --- MODIFIED reconnectSuccess HANDLER ---
   socket.on("reconnectSuccess", (reconnectGameState) => {
     console.log("Successfully reconnected to game!");
     gameState = reconnectGameState;
-
-    // --- THIS IS THE FIX ---
-    // We must re-identify ourselves within the newly received game state.
-    const me = gameState.players.find((p) => p.socketId === socket.id);
+    const me = reconnectGameState.players.find((p) => p.socketId === socket.id);
     if (me) {
       myPlayerId = me.id;
-      console.log(`Re-established myPlayerId as: ${myPlayerId}`);
     }
-    // --- END OF FIX ---
-
     mainMenu.classList.add("hidden");
     gameContainer.classList.remove("hidden");
     gameInfoFooter.classList.remove("hidden");
     initializeBoard();
     renderGame();
   });
-
   socket.on("gameStateUpdate", (newGameState) => {
     gameState = newGameState;
     renderGame();
@@ -179,24 +173,22 @@ document.addEventListener("DOMContentLoaded", () => {
   // --- RENDER FUNCTIONS ---
   function renderGame() {
     if (!gameState || !gameState.players) return;
-    const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+
+    // --- NEW: Handle if player was kicked ---
     const me = gameState.players.find((p) => p.id === myPlayerId);
     if (!me) {
-      console.error(
-        "Could not find my player in game state. Returning to menu."
+      alert(
+        "Vous avez été retiré de la partie (temps de tour écoulé ou déconnexion)."
       );
       clearReconnectData();
       window.location.reload();
       return;
     }
+
+    const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+
     renderPlayersAndPawns();
     playerTurnEl.textContent = `Tour de: ${currentPlayer.name}`;
-    if (
-      gameState.turnState === "secondRoll" &&
-      currentPlayer.id === myPlayerId
-    ) {
-      playerTurnEl.textContent += " (Relancez le dé !)";
-    }
     playerMoneyEl.textContent = `${me.money}€`;
     diceResultEl.textContent = gameState.lastDiceRoll
       ? `Résultat : ${gameState.lastDiceRoll}`
@@ -218,10 +210,39 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     const footerCodeEl = document.getElementById("footer-game-code");
     if (footerCodeEl) footerCodeEl.textContent = gameState.gameCode;
+
+    // --- NEW: Render Timer ---
+    updateTurnTimer();
+
     renderMachine();
     renderModals();
   }
-  // ... all other render and utility functions are unchanged ...
+
+  // --- NEW: Timer Rendering Logic ---
+  function updateTurnTimer() {
+    if (turnTimerInterval) {
+      clearInterval(turnTimerInterval);
+    }
+
+    if (gameState.status !== "in-progress" || !gameState.turnEndTime) {
+      turnTimerEl.style.display = "none";
+      return;
+    }
+
+    turnTimerEl.style.display = "inline-block";
+
+    turnTimerInterval = setInterval(() => {
+      const remaining = Math.round((gameState.turnEndTime - Date.now()) / 1000);
+      if (remaining <= 0) {
+        turnTimerEl.textContent = "0s";
+        clearInterval(turnTimerInterval);
+      } else {
+        turnTimerEl.textContent = `${remaining}s`;
+      }
+    }, 500);
+  }
+
+  // Other render functions are unchanged
   function renderLobby() {
     mainMenu.classList.add("hidden");
     showModal(lobbyModal);
@@ -257,11 +278,12 @@ document.addEventListener("DOMContentLoaded", () => {
         playerInfoDiv.id = `player-info-${player.id}`;
         playerInfoDiv.className = "player-info";
         playerInfoDiv.style.borderColor = player.color;
-        playerInfoDiv.innerHTML = `<h4>${player.name}</h4><p>Argent: <span class="money">${player.money}</span>€</p><div class="player-tile-collection" id="collection-${player.id}"></div>`;
+        playerInfoDiv.innerHTML = `<h4>${player.name}</h4><p>Argent: <span class="money">${player.money}</span></p><div class="player-tile-collection" id="collection-${player.id}"></div>`;
         playersPanel.appendChild(playerInfoDiv);
         createPlayerTileCollection(player);
       }
-      playerInfoDiv.querySelector(".money").textContent = player.money;
+      playerInfoDiv.querySelector(".money").textContent =
+        typeof player.money === "number" ? `${player.money}€` : "???";
       updatePlayerTileCollection(player);
       let pawn = document.getElementById(`pawn-${player.id}`);
       if (!pawn) {
@@ -428,6 +450,7 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById(
       "winner-message"
     ).textContent = `${winner.name} a gagné ${winner.reason} !`;
+    clearReconnectData();
   }
   function setupSellButton() {
     let sellBtn = document.getElementById("sell-tiles-btn");

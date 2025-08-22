@@ -369,3 +369,16 @@ button:hover {
   color: #ffd000; /* yellow */
   user-select: all; /* Make it easy to copy the code */
 }
+
+/* This is not the full file. Add this CSS to the end of public/style.css */
+
+#turn-timer {
+  font-size: 0.9em;
+  font-weight: bold;
+  color: #d90429;
+  margin-left: 15px;
+  background-color: #f0f0f0;
+  padding: 5px 8px;
+  border-radius: 5px;
+  border: 1px solid #ccc;
+}
