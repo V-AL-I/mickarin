@@ -173,18 +173,32 @@ io.on("connection", (socket) => {
       socket.emit("error", "Could not create game.");
     }
   });
+
+  // --- REWRITTEN joinGame HANDLER ---
   socket.on("joinGame", async ({ gameCode, playerData }) => {
     try {
       const game = await gamesCollection.findOne({ gameCode });
       if (!game) return socket.emit("error", "Game not found.");
+
       const existingPlayer = game.players.find(
         (p) => p.name === playerData.name && p.yob === playerData.yob
       );
+
       if (existingPlayer) {
+        // --- RECONNECTION PATH ---
+        const wasHost = game.hostId === existingPlayer.socketId;
         existingPlayer.isDisconnected = false;
         existingPlayer.socketId = socket.id;
+
+        // --- THIS IS THE FIX ---
+        // If the rejoining player was the host, update the game's hostId to their new socketId
+        if (wasHost) {
+          game.hostId = socket.id;
+        }
+
         logMessage(game, `${existingPlayer.name} s'est reconnecté.`);
       } else {
+        // --- NEW PLAYER PATH ---
         if (game.status !== "lobby")
           return socket.emit(
             "error",
@@ -197,6 +211,7 @@ io.on("connection", (socket) => {
             "error",
             "A player with this name is already in the lobby."
           );
+
         const newPlayer = createPlayer(
           game.players.length,
           playerData.name,
@@ -205,11 +220,10 @@ io.on("connection", (socket) => {
         );
         game.players.push(newPlayer);
       }
-      await gamesCollection.updateOne(
-        { gameCode },
-        { $set: { players: game.players } }
-      );
+
+      await gamesCollection.updateOne({ gameCode }, { $set: game });
       socket.join(gameCode);
+
       if (game.status === "lobby") {
         io.to(gameCode).emit("lobbyUpdate", game);
       } else {
@@ -224,6 +238,7 @@ io.on("connection", (socket) => {
       socket.emit("error", "Could not join game.");
     }
   });
+
   socket.on("startGame", async (gameCode) => {
     try {
       const game = await gamesCollection.findOne({ gameCode });
@@ -454,17 +469,26 @@ io.on("connection", (socket) => {
     await gamesCollection.updateOne({ gameCode }, { $set: game });
     broadcastGameState(game);
   });
+
+  // --- REWRITTEN leaveGame HANDLER ---
   socket.on("leaveGame", async ({ gameCode }) => {
     const game = await gamesCollection.findOne({ gameCode });
-    if (!game) return;
+    if (!game || game.status === "finished") return;
+
     const leavingPlayerIndex = game.players.findIndex(
       (p) => p.socketId === socket.id
     );
-    if (leavingPlayerIndex === -1) return;
+    if (leavingPlayerIndex === -1) return; // Player not found
+
     const wasCurrentPlayer = game.currentPlayerIndex === leavingPlayerIndex;
     const leavingPlayer = game.players[leavingPlayerIndex];
+    const isHostLeaving = game.hostId === leavingPlayer.socketId;
+
     logMessage(game, `${leavingPlayer.name} a quitté la partie.`);
+
+    // Remove player
     game.players.splice(leavingPlayerIndex, 1);
+
     if (game.players.length <= 1) {
       if (game.players.length === 1) {
         endGame(game, game.players[0], "car il est le dernier joueur restant");
@@ -472,19 +496,28 @@ io.on("connection", (socket) => {
         endGame(game, { name: "Personne" }, "car tous les joueurs ont quitté");
       }
     } else {
-      if (leavingPlayerIndex < game.currentPlayerIndex) {
-        game.currentPlayerIndex--;
+      // If the host left, assign the next player as the new host
+      if (isHostLeaving) {
+        game.hostId = game.players[0].socketId;
+        logMessage(game, `${game.players[0].name} est le nouvel hôte.`);
       }
+
+      // Adjust turn logic
       if (wasCurrentPlayer) {
-        endTurn(game);
-      } else {
         game.currentPlayerIndex %= game.players.length;
-        startTurnTimer(game);
+        endTurn(game); // Immediately starts the next player's turn and timer
+      } else {
+        if (leavingPlayerIndex < game.currentPlayerIndex) {
+          game.currentPlayerIndex--;
+        }
+        startTurnTimer(game); // Restart the timer for the person who's turn it still is
       }
     }
+
     await gamesCollection.updateOne({ gameCode }, { $set: game });
     broadcastGameState(game);
   });
+
   socket.on("disconnect", async () => {
     console.log(`🔌 User disconnected: ${socket.id}`);
     const game = await gamesCollection.findOne({
@@ -507,6 +540,7 @@ io.on("connection", (socket) => {
 });
 
 // --- 6. SERVER-SIDE GAME LOGIC FUNCTIONS ---
+// ... functions like handleRent, createAndShuffleTileMachine, etc. are unchanged and correct.
 function startTurnTimer(game) {
   clearTurnTimer(game.gameCode);
   game.turnEndTime = Date.now() + TURN_DURATION;
@@ -717,10 +751,7 @@ async function endAuction(game) {
     broadcastGameState(game);
   }
 }
-
-// --- MODIFIED: THE FIX IS HERE ---
 function endTurn(game) {
-  // Correctly increment the player index
   game.currentPlayerIndex = (game.currentPlayerIndex + 1) % game.players.length;
   game.turnState = "start";
   game.status = "in-progress";
@@ -733,7 +764,6 @@ function endTurn(game) {
   );
   startTurnTimer(game);
 }
-
 function checkForWinner(game, player) {
   const signCounts = player.tiles.reduce((acc, tile) => {
     acc[tile.sign] = (acc[tile.sign] || 0) + 1;
