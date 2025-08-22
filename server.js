@@ -65,9 +65,7 @@ const PLAYER_COLORS = [
   "#99582a",
   "#6a4c93",
 ];
-const TURN_DURATION = 90000; // 90 seconds in milliseconds
-
-// --- NEW: Global object to hold timers ---
+const TURN_DURATION = 90000;
 const gameTimers = {};
 
 class Tile {
@@ -175,24 +173,18 @@ io.on("connection", (socket) => {
       socket.emit("error", "Could not create game.");
     }
   });
-
-  // --- REWRITTEN joinGame HANDLER ---
   socket.on("joinGame", async ({ gameCode, playerData }) => {
     try {
       const game = await gamesCollection.findOne({ gameCode });
       if (!game) return socket.emit("error", "Game not found.");
-
       const existingPlayer = game.players.find(
         (p) => p.name === playerData.name && p.yob === playerData.yob
       );
-
       if (existingPlayer) {
-        // --- RECONNECTION PATH ---
         existingPlayer.isDisconnected = false;
         existingPlayer.socketId = socket.id;
         logMessage(game, `${existingPlayer.name} s'est reconnecté.`);
       } else {
-        // --- NEW PLAYER PATH ---
         if (game.status !== "lobby")
           return socket.emit(
             "error",
@@ -205,7 +197,6 @@ io.on("connection", (socket) => {
             "error",
             "A player with this name is already in the lobby."
           );
-
         const newPlayer = createPlayer(
           game.players.length,
           playerData.name,
@@ -214,13 +205,11 @@ io.on("connection", (socket) => {
         );
         game.players.push(newPlayer);
       }
-
       await gamesCollection.updateOne(
         { gameCode },
         { $set: { players: game.players } }
       );
       socket.join(gameCode);
-
       if (game.status === "lobby") {
         io.to(gameCode).emit("lobbyUpdate", game);
       } else {
@@ -228,14 +217,13 @@ io.on("connection", (socket) => {
           "reconnectSuccess",
           sanitizeGameStateForPlayer(game, existingPlayer.id)
         );
-        broadcastGameState(game); // Send an update to all
+        broadcastGameState(game);
       }
     } catch (err) {
       console.error(err);
       socket.emit("error", "Could not join game.");
     }
   });
-
   socket.on("startGame", async (gameCode) => {
     try {
       const game = await gamesCollection.findOne({ gameCode });
@@ -258,15 +246,11 @@ io.on("connection", (socket) => {
       console.error(err);
     }
   });
-
-  // --- ACTION HANDLERS NOW CLEAR THE TIMER ---
   socket.on("rollDice", async ({ gameCode }) => {
     const game = await gamesCollection.findOne({ gameCode });
     const player = game.players[game.currentPlayerIndex];
     if (player.socketId !== socket.id) return;
-
-    clearTurnTimer(gameCode); // --- CLEAR TIMER ---
-
+    clearTurnTimer(gameCode);
     if (game.turnState === "secondRoll") {
       const diceRoll = Math.floor(Math.random() * 6) + 1;
       game.lastDiceRoll = diceRoll;
@@ -306,7 +290,7 @@ io.on("connection", (socket) => {
           thiefId: player.id,
           victimQueue: victimsWithTiles.map((v) => v.id),
         };
-        startTurnTimer(game); // Restart timer for stealing phase
+        startTurnTimer(game);
       } else {
         const cell = { type: player.position % 3 === 1 ? "money" : "color" };
         if (cell.type === "money") {
@@ -320,22 +304,19 @@ io.on("connection", (socket) => {
             `${player.name} atterrit sur une case colorée et active la machine.`
           );
           drawFromMachine(game);
-          startTurnTimer(game); // Restart timer for machine phase
+          startTurnTimer(game);
         }
       }
     }
     await gamesCollection.updateOne({ gameCode }, { $set: game });
     broadcastGameState(game);
   });
-
   socket.on("stealTile", async ({ gameCode, victimId, tileIndex }) => {
     const game = await gamesCollection.findOne({ gameCode });
     if (game.turnState !== "stealing") return;
     const thief = game.players.find((p) => p.id === game.stealState.thiefId);
     if (thief.socketId !== socket.id) return;
-
-    clearTurnTimer(gameCode); // --- CLEAR TIMER ---
-
+    clearTurnTimer(gameCode);
     const victim = game.players.find((p) => p.id === victimId);
     if (!victim || !victim.tiles[tileIndex]) return;
     const stolenTile = victim.tiles.splice(tileIndex, 1)[0];
@@ -356,44 +337,39 @@ io.on("connection", (socket) => {
     }
     if (!checkForWinner(game, thief)) {
       await gamesCollection.updateOne({ gameCode }, { $set: game });
-      startTurnTimer(game); // Restart for next steal or second roll
+      startTurnTimer(game);
       broadcastGameState(game);
     } else {
       await gamesCollection.updateOne({ gameCode }, { $set: game });
       broadcastGameState(game);
     }
   });
-
   socket.on("takeTiles", async ({ gameCode }) => {
     const game = await gamesCollection.findOne({ gameCode });
     const player = game.players[game.currentPlayerIndex];
     if (player.socketId !== socket.id || game.turnState !== "machineChoice")
       return;
-    clearTurnTimer(gameCode); // --- CLEAR TIMER ---
+    clearTurnTimer(gameCode);
     await revealAndAwardTiles(game, player);
   });
-
   socket.on("relaunchMachine", async ({ gameCode }) => {
     const game = await gamesCollection.findOne({ gameCode });
     const player = game.players[game.currentPlayerIndex];
     if (player.socketId !== socket.id || game.turnState !== "machineChoice")
       return;
-    clearTurnTimer(gameCode); // --- CLEAR TIMER ---
+    clearTurnTimer(gameCode);
     logMessage(game, `${player.name} relance le tourniquet.`);
     const newDraw = drawFromMachine(game);
     if (newDraw && newDraw.faceUp) {
       logMessage(game, "Tuile face visible ! Le lot part aux enchères !");
       startAuction(game);
     } else {
-      startTurnTimer(game); // Restart for next choice
+      startTurnTimer(game);
     }
     await gamesCollection.updateOne({ gameCode }, { $set: game });
     broadcastGameState(game);
   });
-
   socket.on("sellTiles", async ({ gameCode, tiles }) => {
-    // Selling doesn't affect the timer, as it happens before the roll.
-    // ... logic is unchanged ...
     const game = await gamesCollection.findOne({ gameCode });
     const player = game.players[game.currentPlayerIndex];
     if (player.socketId !== socket.id || game.turnState !== "start") return;
@@ -426,7 +402,6 @@ io.on("connection", (socket) => {
     await gamesCollection.updateOne({ gameCode }, { $set: game });
     broadcastGameState(game);
   });
-
   socket.on("placeBid", async ({ gameCode, amount }) => {
     const game = await gamesCollection.findOne({ gameCode });
     if (!game || game.status !== "auction") return;
@@ -434,7 +409,7 @@ io.on("connection", (socket) => {
     const bidderInfo = auction.bidders[auction.currentBidderIndex];
     const player = game.players.find((p) => p.id === bidderInfo.id);
     if (player.socketId !== socket.id) return;
-    clearTurnTimer(gameCode); // --- CLEAR TIMER ---
+    clearTurnTimer(gameCode);
     const isInitialBid = !auction.initialBidMade;
     const minBid = isInitialBid ? 100 : auction.highestBid + 100;
     if (amount >= minBid && amount <= player.money && amount % 100 === 0) {
@@ -451,12 +426,11 @@ io.on("connection", (socket) => {
         "error",
         `Votre offre doit être d'au moins ${minBid}€, par paliers de 100€, et dans les limites de votre argent.`
       );
-      startTurnTimer(game); // Restart timer if bid was invalid
+      startTurnTimer(game);
     }
     await gamesCollection.updateOne({ gameCode }, { $set: game });
     broadcastGameState(game);
   });
-
   socket.on("passBid", async ({ gameCode }) => {
     const game = await gamesCollection.findOne({ gameCode });
     if (!game || game.status !== "auction") return;
@@ -464,10 +438,10 @@ io.on("connection", (socket) => {
     const bidderInfo = auction.bidders[auction.currentBidderIndex];
     const player = game.players.find((p) => p.id === bidderInfo.id);
     if (player.socketId !== socket.id) return;
-    clearTurnTimer(gameCode); // --- CLEAR TIMER ---
+    clearTurnTimer(gameCode);
     if (!auction.initialBidMade) {
       if (player.money >= 100) {
-        startTurnTimer(game); // Restart timer if pass was invalid
+        startTurnTimer(game);
         return socket.emit(
           "error",
           "Vous avez initié l'enchère, vous devez faire une offre d'au moins 100€."
@@ -477,6 +451,49 @@ io.on("connection", (socket) => {
     logMessage(game, `${player.name} passe son tour.`);
     bidderInfo.hasPassed = true;
     advanceAuction(game);
+    await gamesCollection.updateOne({ gameCode }, { $set: game });
+    broadcastGameState(game);
+  });
+
+  // --- NEW: Leave Game Handler ---
+  socket.on("leaveGame", async ({ gameCode }) => {
+    const game = await gamesCollection.findOne({ gameCode });
+    if (!game) return;
+
+    const leavingPlayerIndex = game.players.findIndex(
+      (p) => p.socketId === socket.id
+    );
+    if (leavingPlayerIndex === -1) return;
+
+    const wasCurrentPlayer = game.currentPlayerIndex === leavingPlayerIndex;
+    const leavingPlayer = game.players[leavingPlayerIndex];
+    logMessage(game, `${leavingPlayer.name} a quitté la partie.`);
+
+    // Remove player from the game
+    game.players.splice(leavingPlayerIndex, 1);
+
+    if (game.players.length <= 1) {
+      if (game.players.length === 1) {
+        endGame(game, game.players[0], "car il est le dernier joueur restant");
+      } else {
+        // No one left, game just ends
+        endGame(game, { name: "Personne" }, "car tous les joueurs ont quitté");
+      }
+    } else {
+      // Adjust current player index if needed
+      if (leavingPlayerIndex < game.currentPlayerIndex) {
+        game.currentPlayerIndex--;
+      }
+      // If the leaving player was the current one, the turn automatically passes to the next player
+      if (wasCurrentPlayer) {
+        endTurn(game);
+      } else {
+        // It's still the same player's turn, so just ensure index is valid
+        game.currentPlayerIndex %= game.players.length;
+        startTurnTimer(game); // Restart the timer for the current player
+      }
+    }
+
     await gamesCollection.updateOne({ gameCode }, { $set: game });
     broadcastGameState(game);
   });
@@ -503,24 +520,17 @@ io.on("connection", (socket) => {
 });
 
 // --- 6. SERVER-SIDE GAME LOGIC FUNCTIONS ---
-// ... functions like handleRent, createAndShuffleTileMachine, etc. are unchanged ...
-
-// --- NEW: Timer Management Functions ---
+// (All remaining functions are unchanged and should be kept as they are)
 function startTurnTimer(game) {
-  clearTurnTimer(game.gameCode); // Clear any existing timer for this game
-
+  clearTurnTimer(game.gameCode);
   game.turnEndTime = Date.now() + TURN_DURATION;
-
   const gameCode = game.gameCode;
   const playerToExpireId = game.players[game.currentPlayerIndex].id;
-
   gameTimers[gameCode] = setTimeout(async () => {
     console.log(
       `[${gameCode}] Turn timer expired for player ID ${playerToExpireId}.`
     );
     const freshGame = await gamesCollection.findOne({ gameCode });
-
-    // Check if the game is still going and if it's still the same player's turn
     if (
       freshGame &&
       freshGame.status === "in-progress" &&
@@ -531,86 +541,38 @@ function startTurnTimer(game) {
         freshGame,
         `Le temps de ${kickedPlayer.name} est écoulé. Il est retiré de la partie.`
       );
-
-      // Remove the player
       freshGame.players.splice(freshGame.currentPlayerIndex, 1);
-
-      // Check for a winner by default
-      if (freshGame.players.length === 1) {
-        endGame(
-          freshGame,
-          freshGame.players[0],
-          "parce que son dernier adversaire a été éliminé"
-        );
+      if (freshGame.players.length <= 1) {
+        if (freshGame.players.length === 1) {
+          endGame(
+            freshGame,
+            freshGame.players[0],
+            "parce que son dernier adversaire a été éliminé"
+          );
+        } else {
+          endGame(
+            freshGame,
+            { name: "Personne" },
+            "car tous les joueurs ont quitté"
+          );
+        }
       } else {
-        // If the kicked player was the last in the array, loop back to the first
         if (freshGame.currentPlayerIndex >= freshGame.players.length) {
           freshGame.currentPlayerIndex = 0;
         }
-        endTurn(freshGame); // This also starts the timer for the next player
+        endTurn(freshGame);
       }
-
       await gamesCollection.updateOne({ gameCode }, { $set: freshGame });
       broadcastGameState(freshGame);
     }
   }, TURN_DURATION);
 }
-
 function clearTurnTimer(gameCode) {
   if (gameTimers[gameCode]) {
     clearTimeout(gameTimers[gameCode]);
     delete gameTimers[gameCode];
   }
 }
-
-// --- MODIFIED FUNCTIONS TO USE THE TIMER ---
-async function endAuction(game) {
-  const auction = game.auctionState;
-  if (auction.highestBidderId !== null) {
-    const winner = game.players.find((p) => p.id === auction.highestBidderId);
-    winner.money -= auction.highestBid;
-    logMessage(
-      game,
-      `${winner.name} remporte l'enchère pour ${auction.highestBid}€.`
-    );
-    await revealAndAwardTiles(game, winner); // This will call endTurn which starts the next timer
-  } else {
-    logMessage(game, "Personne n'a enchéri. Les tuiles sont défaussées.");
-    endTurn(game);
-    await gamesCollection.updateOne(
-      { gameCode: game.gameCode },
-      { $set: game }
-    );
-    broadcastGameState(game);
-  }
-}
-
-function endTurn(game) {
-  game.currentPlayerIndex = game.currentPlayerIndex % game.players.length; // Ensure index is valid
-  game.turnState = "start";
-  game.status = "in-progress";
-  game.machineOffer = [];
-  game.lastDiceRoll = null;
-  game.stealState = null;
-  logMessage(
-    game,
-    `C'est au tour de ${game.players[game.currentPlayerIndex].name}.`
-  );
-  startTurnTimer(game); // Start the timer for the new turn
-}
-
-function endGame(game, winner, reason) {
-  clearTurnTimer(game.gameCode); // Stop any active timers
-  game.status = "finished";
-  game.turnEndTime = null;
-  game.winner = { name: winner.name, reason: reason };
-  logMessage(
-    game,
-    `🏁 La partie est terminée ! ${winner.name} a gagné ${reason} !`
-  );
-}
-
-// ... all other functions remain the same ...
 async function revealAndAwardTiles(game, winningPlayer) {
   const faceDownOffers = game.machineOffer.filter((offer) => !offer.faceUp);
   if (faceDownOffers.length > 0) {
@@ -749,6 +711,39 @@ function advanceAuction(game) {
   auction.currentBidderIndex = nextIndex;
   startTurnTimer(game);
 }
+async function endAuction(game) {
+  const auction = game.auctionState;
+  if (auction.highestBidderId !== null) {
+    const winner = game.players.find((p) => p.id === auction.highestBidderId);
+    winner.money -= auction.highestBid;
+    logMessage(
+      game,
+      `${winner.name} remporte l'enchère pour ${auction.highestBid}€.`
+    );
+    await revealAndAwardTiles(game, winner);
+  } else {
+    logMessage(game, "Personne n'a enchéri. Les tuiles sont défaussées.");
+    endTurn(game);
+    await gamesCollection.updateOne(
+      { gameCode: game.gameCode },
+      { $set: game }
+    );
+    broadcastGameState(game);
+  }
+}
+function endTurn(game) {
+  game.currentPlayerIndex = game.currentPlayerIndex % game.players.length;
+  game.turnState = "start";
+  game.status = "in-progress";
+  game.machineOffer = [];
+  game.lastDiceRoll = null;
+  game.stealState = null;
+  logMessage(
+    game,
+    `C'est au tour de ${game.players[game.currentPlayerIndex].name}.`
+  );
+  startTurnTimer(game);
+}
 function checkForWinner(game, player) {
   const signCounts = player.tiles.reduce((acc, tile) => {
     acc[tile.sign] = (acc[tile.sign] || 0) + 1;
@@ -764,6 +759,16 @@ function checkForWinner(game, player) {
     return true;
   }
   return false;
+}
+function endGame(game, winner, reason) {
+  clearTurnTimer(game.gameCode);
+  game.status = "finished";
+  game.turnEndTime = null;
+  game.winner = { name: winner.name, reason: reason };
+  logMessage(
+    game,
+    `🏁 La partie est terminée ! ${winner.name} a gagné ${reason} !`
+  );
 }
 
 // --- 7. START SERVER ---

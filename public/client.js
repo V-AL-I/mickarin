@@ -4,13 +4,14 @@ document.addEventListener("DOMContentLoaded", () => {
   let gameState = {};
   let myPlayerId = null;
   let selectedTilesForSale = [];
-  let turnTimerInterval = null; // --- NEW: Variable to hold our timer interval
+  let turnTimerInterval = null;
 
   // --- DOM ELEMENTS ---
   const mainMenu = document.getElementById("main-menu");
   const gameContainer = document.getElementById("game-container");
   const gameInfoFooter = document.getElementById("game-info-footer");
-  const turnTimerEl = document.getElementById("turn-timer"); // --- NEW: Timer display element
+  const turnTimerEl = document.getElementById("turn-timer");
+  const leaveGameBtn = document.getElementById("leave-game-btn"); // --- NEW ---
   // ... other DOM elements are unchanged ...
   const createGameBtn = document.getElementById("create-game-btn");
   const joinGameBtn = document.getElementById("join-game-btn");
@@ -39,7 +40,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const placeBidBtn = auctionModal.querySelector("#place-bid-btn");
   const passBidBtn = auctionModal.querySelector("#pass-bid-btn");
 
-  // --- EVENT EMITTERS (UNCHANGED) ---
+  // --- EVENT EMITTERS ---
   createGameBtn.addEventListener("click", () => {
     const playerData = {
       name: document.getElementById("player-name-create").value.trim(),
@@ -119,6 +120,18 @@ document.addEventListener("DOMContentLoaded", () => {
     window.location.reload();
   });
 
+  // --- NEW: Leave Game Emitter ---
+  leaveGameBtn.addEventListener("click", () => {
+    if (
+      confirm(
+        "Êtes-vous sûr de vouloir quitter la partie ? Cette action est définitive et vous ne pourrez pas revenir."
+      )
+    ) {
+      clearReconnectData(); // Clear data immediately so they can't auto-reconnect
+      socket.emit("leaveGame", { gameCode: gameState.gameCode });
+    }
+  });
+
   // --- EVENT LISTENERS (UNCHANGED) ---
   socket.on("connect", () => {
     console.log("Connected to server with ID:", socket.id);
@@ -174,12 +187,13 @@ document.addEventListener("DOMContentLoaded", () => {
   function renderGame() {
     if (!gameState || !gameState.players) return;
 
-    // --- NEW: Handle if player was kicked ---
+    // Check if player has been removed
     const me = gameState.players.find((p) => p.id === myPlayerId);
     if (!me) {
-      alert(
-        "Vous avez été retiré de la partie (temps de tour écoulé ou déconnexion)."
-      );
+      if (gameState.status !== "finished") {
+        // Don't show alert if game ended normally
+        alert("Vous avez été retiré de la partie.");
+      }
       clearReconnectData();
       window.location.reload();
       return;
@@ -211,26 +225,21 @@ document.addEventListener("DOMContentLoaded", () => {
     const footerCodeEl = document.getElementById("footer-game-code");
     if (footerCodeEl) footerCodeEl.textContent = gameState.gameCode;
 
-    // --- NEW: Render Timer ---
     updateTurnTimer();
-
     renderMachine();
     renderModals();
   }
 
-  // --- NEW: Timer Rendering Logic ---
+  // ... all other functions are unchanged ...
   function updateTurnTimer() {
     if (turnTimerInterval) {
       clearInterval(turnTimerInterval);
     }
-
     if (gameState.status !== "in-progress" || !gameState.turnEndTime) {
       turnTimerEl.style.display = "none";
       return;
     }
-
     turnTimerEl.style.display = "inline-block";
-
     turnTimerInterval = setInterval(() => {
       const remaining = Math.round((gameState.turnEndTime - Date.now()) / 1000);
       if (remaining <= 0) {
@@ -241,8 +250,6 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }, 500);
   }
-
-  // Other render functions are unchanged
   function renderLobby() {
     mainMenu.classList.add("hidden");
     showModal(lobbyModal);

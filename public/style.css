@@ -382,3 +382,15 @@ button:hover {
   border-radius: 5px;
   border: 1px solid #ccc;
 }
+
+#leave-game-btn {
+  background-color: #b81425; /* A dark, dangerous red */
+  color: white;
+  border: none;
+  margin-top: 15px; /* Give it some space from the log */
+  width: 90%;
+}
+
+#leave-game-btn:hover {
+  background-color: #d90429; /* Brighter red on hover */
+}
