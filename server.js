@@ -89,13 +89,11 @@ class Tile {
     return specialTiles.some((s) => s.sign === sign && s.color === color);
   }
 }
-
-// --- MODIFIED createPlayer FUNCTION ---
 function createPlayer(id, name, yob, socketId) {
   return {
     id,
     name,
-    yob, // --- ADDED: Store the year of birth to use as a unique identifier
+    yob,
     socketId,
     color: PLAYER_COLORS[id],
     money: STARTING_MONEY,
@@ -104,7 +102,6 @@ function createPlayer(id, name, yob, socketId) {
     isDisconnected: false,
   };
 }
-
 function createAndShuffleTileMachine() {
   let machine = [];
   for (const sign of SIGNS) {
@@ -135,8 +132,50 @@ function shuffleMachine(game) {
   }
 }
 
+// =========================================================================
+// --- NEW HELPER FUNCTIONS FOR SANITIZING AND BROADCASTING ---
+// =========================================================================
+
+/**
+ * Creates a "sanitized" version of the game state for a specific player,
+ * hiding the money of all other players.
+ * @param {object} fullGame - The complete, authoritative game state.
+ * @param {number} targetPlayerId - The ID of the player who will receive this state.
+ * @returns {object} A safe version of the game state to send to the client.
+ */
+function sanitizeGameStateForPlayer(fullGame, targetPlayerId) {
+  // Create a deep copy to avoid modifying the original game object
+  const sanitizedGame = JSON.parse(JSON.stringify(fullGame));
+
+  sanitizedGame.players.forEach((player) => {
+    if (player.id !== targetPlayerId) {
+      // Obscure the money for everyone except the target player
+      player.money = "???";
+    }
+  });
+  return sanitizedGame;
+}
+
+/**
+ * Loops through all connected players in a game and sends each one their
+ * own personalized, sanitized game state.
+ * @param {object} game - The complete, authoritative game state.
+ */
+function broadcastGameState(game, event = "gameStateUpdate") {
+  game.players.forEach((player) => {
+    if (!player.isDisconnected && player.socketId) {
+      const sanitizedState = sanitizeGameStateForPlayer(game, player.id);
+      io.to(player.socketId).emit(event, sanitizedState);
+    }
+  });
+}
+// =========================================================================
+// --- END OF NEW HELPER FUNCTIONS ---
+// =========================================================================
+
 // --- 5. SOCKET.IO REAL-TIME LOGIC ---
 io.on("connection", (socket) => {
+  // Unchanged lobby logic...
   socket.on("createGame", async (playerData) => {
     try {
       const gameCode = nanoid(5).toUpperCase();
@@ -156,46 +195,35 @@ io.on("connection", (socket) => {
       socket.emit("error", "Could not create game.");
     }
   });
-
-  // --- REWRITTEN joinGame HANDLER ---
   socket.on("joinGame", async ({ gameCode, playerData }) => {
     try {
       const game = await gamesCollection.findOne({ gameCode });
       if (!game) return socket.emit("error", "Game not found.");
-
-      // Correctly identify an existing player by name AND year of birth
       const existingPlayer = game.players.find(
         (p) => p.name === playerData.name && p.yob === playerData.yob
       );
-
       if (existingPlayer) {
-        // --- RECONNECTION PATH ---
         if (!existingPlayer.isDisconnected && game.status !== "lobby") {
           return socket.emit(
             "error",
             "This player is already actively connected to the game."
           );
         }
-
         existingPlayer.isDisconnected = false;
         existingPlayer.socketId = socket.id;
         logMessage(game, `${existingPlayer.name} s'est reconnecté.`);
       } else {
-        // --- NEW PLAYER PATH ---
-        // Block NEW players from joining a started game
         if (game.status !== "lobby") {
           return socket.emit("error", "Game has already started.");
         }
         if (game.players.length >= 8)
           return socket.emit("error", "Game is full.");
-        // Prevent duplicate names in the lobby
         if (game.players.some((p) => p.name === playerData.name)) {
           return socket.emit(
             "error",
             "A player with this name is already in the lobby. Use a different name or check your year of birth."
           );
         }
-
         const newPlayer = createPlayer(
           game.players.length,
           playerData.name,
@@ -204,20 +232,21 @@ io.on("connection", (socket) => {
         );
         game.players.push(newPlayer);
       }
-
       await gamesCollection.updateOne(
         { gameCode },
         { $set: { players: game.players } }
       );
       socket.join(gameCode);
-
       if (game.status === "lobby") {
         io.to(gameCode).emit("lobbyUpdate", game);
       } else {
-        // Reconnecting player gets the full state to resume their game
-        socket.emit("reconnectSuccess", game);
-        // Everyone else gets a normal update (e.g., seeing the player's status change from disconnected)
-        socket.to(gameCode).emit("gameStateUpdate", game);
+        socket.emit(
+          "reconnectSuccess",
+          sanitizeGameStateForPlayer(game, existingPlayer.id)
+        );
+        socket
+          .to(gameCode)
+          .emit("gameStateUpdate", sanitizeGameStateForPlayer(game, -1));
       }
     } catch (err) {
       console.error(err);
@@ -225,7 +254,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  // ... rest of the server is unchanged ...
+  // --- MODIFIED startGame HANDLER ---
   socket.on("startGame", async (gameCode) => {
     try {
       const game = await gamesCollection.findOne({ gameCode });
@@ -242,15 +271,20 @@ io.on("connection", (socket) => {
         `La partie commence ! C'est au tour de ${game.players[0].name}.`
       );
       await gamesCollection.updateOne({ gameCode }, { $set: game });
-      io.to(gameCode).emit("gameStarted", game);
+
+      // Use the new broadcast function
+      broadcastGameState(game, "gameStarted");
     } catch (err) {
       console.error(err);
     }
   });
+
+  // --- ALL SUBSEQUENT HANDLERS NOW USE broadcastGameState ---
   socket.on("rollDice", async ({ gameCode }) => {
     const game = await gamesCollection.findOne({ gameCode });
     const player = game.players[game.currentPlayerIndex];
     if (player.socketId !== socket.id) return;
+
     if (game.turnState === "secondRoll") {
       const diceRoll = Math.floor(Math.random() * 6) + 1;
       game.lastDiceRoll = diceRoll;
@@ -260,68 +294,66 @@ io.on("connection", (socket) => {
         `${player.name} fait un ${diceRoll} pour son second lancer et termine son tour.`
       );
       endTurn(game);
-      await gamesCollection.updateOne({ gameCode }, { $set: game });
-      return io.to(gameCode).emit("gameStateUpdate", game);
-    }
-    if (game.turnState !== "start") return;
-    const diceRoll = Math.floor(Math.random() * 6) + 1;
-    game.lastDiceRoll = diceRoll;
-    logMessage(game, `${player.name} a fait un ${diceRoll}.`);
-    const oldPosition = player.position;
-    const newPosition = (oldPosition + diceRoll) % BOARD_SIZE;
-    player.position = newPosition;
-    handleRent(game, player);
-    const overtakenPlayers = new Set();
-    for (let i = 1; i <= diceRoll; i++) {
-      const pathPosition = (oldPosition + i) % BOARD_SIZE;
-      game.players.forEach((otherPlayer) => {
-        if (
-          otherPlayer.id !== player.id &&
-          otherPlayer.position === pathPosition
-        ) {
-          overtakenPlayers.add(otherPlayer);
-        }
-      });
-    }
-    const victims = Array.from(overtakenPlayers);
-    const victimsWithTiles = victims.filter((v) => v.tiles.length > 0);
-    if (victimsWithTiles.length > 0) {
-      logMessage(
-        game,
-        `${player.name} a dépassé ${victimsWithTiles
-          .map((p) => p.name)
-          .join(", ")} et va pouvoir voler des tuiles !`
-      );
-      game.status = "steal";
-      game.turnState = "stealing";
-      game.stealState = {
-        thiefId: player.id,
-        victimQueue: victimsWithTiles.map((v) => v.id),
-      };
-    } else {
-      if (victims.length > 0) {
-        logMessage(
-          game,
-          `${player.name} a dépassé des joueurs, mais personne n'a de tuiles à voler. Le tour continue.`
-        );
+    } else if (game.turnState === "start") {
+      const diceRoll = Math.floor(Math.random() * 6) + 1;
+      game.lastDiceRoll = diceRoll;
+      logMessage(game, `${player.name} a fait un ${diceRoll}.`);
+      const oldPosition = player.position;
+      player.position = (oldPosition + diceRoll) % BOARD_SIZE;
+      handleRent(game, player);
+      const overtakenPlayers = new Set();
+      for (let i = 1; i <= diceRoll; i++) {
+        const pathPosition = (oldPosition + i) % BOARD_SIZE;
+        game.players.forEach((otherPlayer) => {
+          if (
+            otherPlayer.id !== player.id &&
+            otherPlayer.position === pathPosition
+          ) {
+            overtakenPlayers.add(otherPlayer);
+          }
+        });
       }
-      const cell = { type: player.position % 3 === 1 ? "money" : "color" };
-      if (cell.type === "money") {
-        player.money += 100;
-        logMessage(game, `${player.name} gagne 100€.`);
-        endTurn(game);
-      } else {
-        game.turnState = "machineChoice";
+      const victims = Array.from(overtakenPlayers);
+      const victimsWithTiles = victims.filter((v) => v.tiles.length > 0);
+      if (victimsWithTiles.length > 0) {
         logMessage(
           game,
-          `${player.name} atterrit sur une case colorée et active la machine.`
+          `${player.name} a dépassé ${victimsWithTiles
+            .map((p) => p.name)
+            .join(", ")} et va pouvoir voler des tuiles !`
         );
-        drawFromMachine(game);
+        game.status = "steal";
+        game.turnState = "stealing";
+        game.stealState = {
+          thiefId: player.id,
+          victimQueue: victimsWithTiles.map((v) => v.id),
+        };
+      } else {
+        if (victims.length > 0) {
+          logMessage(
+            game,
+            `${player.name} a dépassé des joueurs, mais personne n'a de tuiles à voler. Le tour continue.`
+          );
+        }
+        const cell = { type: player.position % 3 === 1 ? "money" : "color" };
+        if (cell.type === "money") {
+          player.money += 100;
+          logMessage(game, `${player.name} gagne 100€.`);
+          endTurn(game);
+        } else {
+          game.turnState = "machineChoice";
+          logMessage(
+            game,
+            `${player.name} atterrit sur une case colorée et active la machine.`
+          );
+          drawFromMachine(game);
+        }
       }
     }
     await gamesCollection.updateOne({ gameCode }, { $set: game });
-    io.to(gameCode).emit("gameStateUpdate", game);
+    broadcastGameState(game);
   });
+
   socket.on("stealTile", async ({ gameCode, victimId, tileIndex }) => {
     const game = await gamesCollection.findOne({ gameCode });
     if (game.turnState !== "stealing") return;
@@ -347,12 +379,14 @@ io.on("connection", (socket) => {
     }
     if (!checkForWinner(game, thief)) {
       await gamesCollection.updateOne({ gameCode }, { $set: game });
-      io.to(gameCode).emit("gameStateUpdate", game);
+      broadcastGameState(game);
     } else {
       await gamesCollection.updateOne({ gameCode }, { $set: game });
-      io.to(gameCode).emit("gameStateUpdate", game);
+      broadcastGameState(game);
     }
   });
+
+  // All other handlers will now use broadcastGameState
   socket.on("takeTiles", async ({ gameCode }) => {
     const game = await gamesCollection.findOne({ gameCode });
     const player = game.players[game.currentPlayerIndex];
@@ -372,7 +406,7 @@ io.on("connection", (socket) => {
       startAuction(game);
     }
     await gamesCollection.updateOne({ gameCode }, { $set: game });
-    io.to(gameCode).emit("gameStateUpdate", game);
+    broadcastGameState(game);
   });
   socket.on("sellTiles", async ({ gameCode, tiles }) => {
     const game = await gamesCollection.findOne({ gameCode });
@@ -405,7 +439,7 @@ io.on("connection", (socket) => {
       `${player.name} a vendu ${soldTilesForMachine.length} tuile(s) for ${moneyGained}€. Les tuiles retournent dans la machine.`
     );
     await gamesCollection.updateOne({ gameCode }, { $set: game });
-    io.to(gameCode).emit("gameStateUpdate", game);
+    broadcastGameState(game);
   });
   socket.on("placeBid", async ({ gameCode, amount }) => {
     const game = await gamesCollection.findOne({ gameCode });
@@ -432,7 +466,7 @@ io.on("connection", (socket) => {
       );
     }
     await gamesCollection.updateOne({ gameCode }, { $set: game });
-    io.to(gameCode).emit("gameStateUpdate", game);
+    broadcastGameState(game);
   });
   socket.on("passBid", async ({ gameCode }) => {
     const game = await gamesCollection.findOne({ gameCode });
@@ -453,7 +487,7 @@ io.on("connection", (socket) => {
     bidderInfo.hasPassed = true;
     advanceAuction(game);
     await gamesCollection.updateOne({ gameCode }, { $set: game });
-    io.to(gameCode).emit("gameStateUpdate", game);
+    broadcastGameState(game);
   });
   socket.on("disconnect", async () => {
     console.log(`🔌 User disconnected: ${socket.id}`);
@@ -464,17 +498,101 @@ io.on("connection", (socket) => {
       const player = game.players.find((p) => p.socketId === socket.id);
       if (player) {
         player.isDisconnected = true;
+        player.socketId = null;
         logMessage(game, `${player.name} s'est déconnecté.`);
         await gamesCollection.updateOne(
           { gameCode: game.gameCode },
           { $set: { players: game.players } }
         );
-        io.to(game.gameCode).emit("gameStateUpdate", game);
+        broadcastGameState(game);
       }
     }
   });
 });
-// ... all other server-side functions (handleRent, revealAndAwardTiles, etc.) are unchanged.
+
+// --- 6. SERVER-SIDE GAME LOGIC FUNCTIONS ---
+async function revealAndAwardTiles(game, winningPlayer) {
+  // ... (This function now uses broadcastGameState at the end) ...
+  const faceDownOffers = game.machineOffer.filter((offer) => !offer.faceUp);
+  if (faceDownOffers.length > 0) {
+    logMessage(game, "Révélation des tuiles...");
+    game.turnState = "revealing";
+    game.machineOffer.forEach((offer) => {
+      if (!offer.faceUp) {
+        const colorName = Object.keys(COLORS)
+          .find((key) => COLORS[key] === offer.tile.color)
+          .toLowerCase();
+        logMessage(game, `Tuile révélée : ${offer.tile.sign} ${colorName}`);
+        offer.faceUp = true;
+      }
+    });
+    await gamesCollection.updateOne(
+      { gameCode: game.gameCode },
+      { $set: game }
+    );
+    broadcastGameState(game); // Reveal state
+    setTimeout(async () => {
+      const finalGame = await gamesCollection.findOne({
+        gameCode: game.gameCode,
+      });
+      if (!finalGame) return;
+      const finalWinner = finalGame.players.find(
+        (p) => p.id === winningPlayer.id
+      );
+      finalWinner.tiles.push(
+        ...finalGame.machineOffer.map((offer) => offer.tile)
+      );
+      logMessage(
+        finalGame,
+        `${finalWinner.name} a reçu ${finalGame.machineOffer.length} tuile(s).`
+      );
+      if (!checkForWinner(finalGame, finalWinner)) {
+        endTurn(finalGame);
+      }
+      await gamesCollection.updateOne(
+        { gameCode: finalGame.gameCode },
+        { $set: finalGame }
+      );
+      broadcastGameState(finalGame); // Final state
+    }, 1500);
+  } else {
+    winningPlayer.tiles.push(...game.machineOffer.map((offer) => offer.tile));
+    logMessage(
+      game,
+      `${winningPlayer.name} a reçu ${game.machineOffer.length} tuile(s).`
+    );
+    if (!checkForWinner(game, winningPlayer)) {
+      endTurn(game);
+    }
+    await gamesCollection.updateOne(
+      { gameCode: game.gameCode },
+      { $set: game }
+    );
+    broadcastGameState(game);
+  }
+}
+async function endAuction(game) {
+  // ... (This function now uses broadcastGameState) ...
+  const auction = game.auctionState;
+  if (auction.highestBidderId !== null) {
+    const winner = game.players.find((p) => p.id === auction.highestBidderId);
+    winner.money -= auction.highestBid;
+    logMessage(
+      game,
+      `${winner.name} remporte l'enchère pour ${auction.highestBid}€.`
+    );
+    await revealAndAwardTiles(game, winner);
+  } else {
+    logMessage(game, "Personne n'a enchéri. Les tuiles sont défaussées.");
+    endTurn(game);
+    await gamesCollection.updateOne(
+      { gameCode: game.gameCode },
+      { $set: game }
+    );
+    broadcastGameState(game);
+  }
+}
+// Unchanged functions...
 function handleRent(game, currentPlayer) {
   const currentPosition = currentPlayer.position;
   const currentSign = getSignForPosition(currentPosition);
@@ -511,65 +629,6 @@ function handleRent(game, currentPlayer) {
     game,
     `${currentPlayer.name} paie un loyer de ${rentAmount}€ à ${finalLandlord.name} pour le signe ${currentSign}.`
   );
-}
-async function revealAndAwardTiles(game, winningPlayer) {
-  const faceDownOffers = game.machineOffer.filter((offer) => !offer.faceUp);
-  if (faceDownOffers.length > 0) {
-    logMessage(game, "Révélation des tuiles...");
-    game.turnState = "revealing";
-    game.machineOffer.forEach((offer) => {
-      if (!offer.faceUp) {
-        const colorName = Object.keys(COLORS)
-          .find((key) => COLORS[key] === offer.tile.color)
-          .toLowerCase();
-        logMessage(game, `Tuile révélée : ${offer.tile.sign} ${colorName}`);
-        offer.faceUp = true;
-      }
-    });
-    await gamesCollection.updateOne(
-      { gameCode: game.gameCode },
-      { $set: game }
-    );
-    io.to(game.gameCode).emit("gameStateUpdate", game);
-    setTimeout(async () => {
-      const finalGame = await gamesCollection.findOne({
-        gameCode: game.gameCode,
-      });
-      if (!finalGame) return;
-      const finalWinner = finalGame.players.find(
-        (p) => p.id === winningPlayer.id
-      );
-      finalWinner.tiles.push(
-        ...finalGame.machineOffer.map((offer) => offer.tile)
-      );
-      logMessage(
-        finalGame,
-        `${finalWinner.name} a reçu ${finalGame.machineOffer.length} tuile(s).`
-      );
-      if (!checkForWinner(finalGame, finalWinner)) {
-        endTurn(finalGame);
-      }
-      await gamesCollection.updateOne(
-        { gameCode: finalGame.gameCode },
-        { $set: finalGame }
-      );
-      io.to(finalGame.gameCode).emit("gameStateUpdate", finalGame);
-    }, 1500);
-  } else {
-    winningPlayer.tiles.push(...game.machineOffer.map((offer) => offer.tile));
-    logMessage(
-      game,
-      `${winningPlayer.name} a reçu ${game.machineOffer.length} tuile(s).`
-    );
-    if (!checkForWinner(game, winningPlayer)) {
-      endTurn(game);
-    }
-    await gamesCollection.updateOne(
-      { gameCode: game.gameCode },
-      { $set: game }
-    );
-    io.to(game.gameCode).emit("gameStateUpdate", game);
-  }
 }
 function drawFromMachine(game) {
   if (game.tileMachine.length === 0) {
@@ -610,26 +669,6 @@ function advanceAuction(game) {
     nextIndex = (nextIndex + 1) % auction.bidders.length;
   }
   auction.currentBidderIndex = nextIndex;
-}
-async function endAuction(game) {
-  const auction = game.auctionState;
-  if (auction.highestBidderId !== null) {
-    const winner = game.players.find((p) => p.id === auction.highestBidderId);
-    winner.money -= auction.highestBid;
-    logMessage(
-      game,
-      `${winner.name} remporte l'enchère pour ${auction.highestBid}€.`
-    );
-    await revealAndAwardTiles(game, winner);
-  } else {
-    logMessage(game, "Personne n'a enchéri. Les tuiles sont défaussées.");
-    endTurn(game);
-    await gamesCollection.updateOne(
-      { gameCode: game.gameCode },
-      { $set: game }
-    );
-    io.to(game.gameCode).emit("gameStateUpdate", game);
-  }
 }
 function endTurn(game) {
   game.currentPlayerIndex = (game.currentPlayerIndex + 1) % game.players.length;
