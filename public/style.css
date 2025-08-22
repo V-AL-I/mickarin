@@ -24,7 +24,7 @@ body {
   gap: 20px;
   padding: 20px;
   width: 100%;
-  max-width: 1400px; /* Added for better layout on very wide screens */
+  max-width: 1400px;
 }
 
 #board-container {
@@ -49,14 +49,12 @@ body {
   border: 1px solid #ccc;
   position: relative;
 }
-
 .cell.path {
   background-size: contain;
   background-position: center;
   background-repeat: no-repeat;
 }
 
-/* --- MODIFIED: MACHINE PANEL FIX --- */
 #center-panel {
   position: absolute;
   top: var(--cell-size);
@@ -67,11 +65,11 @@ body {
   border: 2px solid var(--border-color);
   display: flex;
   flex-direction: column;
-  justify-content: space-around; /* Better spacing for content */
+  justify-content: space-around;
   align-items: center;
   padding: 10px;
   box-sizing: border-box;
-  overflow-y: auto; /* This is the key fix: allows scrolling if content is too tall */
+  overflow-y: auto;
 }
 
 #machine-tiles {
@@ -83,6 +81,7 @@ body {
   min-height: 50px;
 }
 
+/* --- MODIFIED: Pawn Centering --- */
 .pawn {
   width: var(--pawn-size);
   height: var(--pawn-size);
@@ -90,7 +89,10 @@ body {
   position: absolute;
   border: 2px solid white;
   box-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
-  transition: all 0.5s ease-in-out;
+  transition: all 0.4s ease-in-out;
+  /* This centers the pawn on its coordinates, making offsets much easier to calculate */
+  transform: translate(-50%, -50%);
+  z-index: 10;
 }
 
 #players-panel {
@@ -108,6 +110,17 @@ body {
   min-width: 250px;
   max-width: 300px;
   background-color: #fff;
+  transition: all 0.3s ease;
+}
+
+/* --- NEW: Eliminated Player Style --- */
+.player-info.eliminated {
+  background-color: #e9ecef;
+  opacity: 0.6;
+  border-style: dashed;
+}
+.player-info.eliminated h4 {
+  text-decoration: line-through;
 }
 
 .player-tile-collection {
@@ -117,14 +130,12 @@ body {
   border-radius: 4px;
   background-color: #f9f9f9;
 }
-
 .player-collection-row {
   display: flex;
   justify-content: flex-start;
   gap: 1px;
   margin-bottom: 1px;
 }
-
 .player-collection-tile {
   width: 18px !important;
   height: 18px !important;
@@ -135,21 +146,17 @@ body {
   border-radius: 2px;
   border: 2px solid transparent;
 }
-
 .player-collection-tile.owned {
   opacity: 1;
 }
-
 .player-collection-tile.special-tile {
   border: 2px dotted gold;
 }
-
 .player-collection-tile.special-tile.owned {
   box-shadow: 0 0 8px gold, 0 0 4px gold;
   transform: scale(1.1);
   z-index: 2;
 }
-
 .player-info h4 {
   margin: 0 0 10px 0;
   padding-bottom: 5px;
@@ -170,19 +177,16 @@ body {
   background-position: center;
   background-repeat: no-repeat;
 }
-
 .tile.face-down {
   background-color: #888;
   background-image: none !important;
   color: transparent;
 }
-
 .tile.face-down::after {
   content: "?";
   color: rgba(255, 255, 255, 0.7);
   font-size: 24px;
 }
-
 .tile.special-tile {
   border: 3px dotted gold !important;
   box-shadow: 0 0 5px rgba(255, 215, 0, 0.5);
@@ -198,7 +202,6 @@ body {
   border-radius: 8px;
   background-color: #fff;
 }
-
 #game-log {
   width: 100%;
   height: 60px;
@@ -206,8 +209,8 @@ body {
   border: 1px solid #ccc;
   padding: 5px;
   background-color: #f0f0f0;
-  display: flex; /* Added for correct log ordering */
-  flex-direction: column-reverse; /* Added for correct log ordering */
+  display: flex;
+  flex-direction: column-reverse;
 }
 
 .modal {
@@ -224,7 +227,6 @@ body {
   max-width: 500px;
   text-align: center;
 }
-
 #modal-backdrop {
   position: fixed;
   top: 0;
@@ -234,11 +236,9 @@ body {
   background: rgba(0, 0, 0, 0.5);
   z-index: 100;
 }
-
 .hidden {
   display: none !important;
 }
-
 button {
   padding: 10px 15px;
   font-size: 16px;
@@ -248,7 +248,6 @@ button {
   background-color: #e0e0e0;
   margin: 5px;
 }
-
 button:hover {
   background-color: #d0d0d0;
 }
@@ -257,7 +256,6 @@ button:hover {
   max-height: 80vh;
   overflow-y: auto;
 }
-
 #steal-options {
   display: flex;
   flex-wrap: wrap;
@@ -268,7 +266,6 @@ button:hover {
   border: 1px solid #ccc;
   border-radius: 5px;
 }
-
 #steal-options .tile {
   width: 60px;
   height: 60px;
@@ -276,10 +273,57 @@ button:hover {
   cursor: pointer;
   transition: transform 0.2s ease;
 }
-
 #steal-options .tile:hover {
   transform: scale(1.1);
   box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+}
+
+#turn-timer {
+  font-size: 0.9em;
+  font-weight: bold;
+  color: #d90429;
+  margin-left: 15px;
+  background-color: #f0f0f0;
+  padding: 5px 8px;
+  border-radius: 5px;
+  border: 1px solid #ccc;
+}
+#game-info-footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  background-color: rgba(0, 0, 0, 0.75);
+  color: white;
+  text-align: center;
+  padding: 5px 0;
+  font-size: 14px;
+  z-index: 200;
+}
+#game-info-footer p {
+  margin: 0;
+}
+#game-info-footer b {
+  color: #ffd000;
+  user-select: all;
+}
+#leave-game-btn {
+  background-color: #b81425;
+  color: white;
+  border: none;
+  margin-top: 15px;
+  width: 90%;
+}
+#leave-game-btn:hover {
+  background-color: #d90429;
+}
+#leave-lobby-btn {
+  background-color: #6c757d;
+  color: white;
+  border: none;
+}
+#leave-lobby-btn:hover {
+  background-color: #5a6268;
 }
 
 @media (min-width: 1024px) {
@@ -298,13 +342,11 @@ button:hover {
     order: 3;
   }
 }
-
 #sell-modal {
   max-width: 600px;
   max-height: 80vh;
   overflow-y: auto;
 }
-
 #sell-tiles-container {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
@@ -316,91 +358,29 @@ button:hover {
   max-height: 300px;
   overflow-y: auto;
 }
-
 #sell-controls {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-top: 15px;
 }
-
 #sell-total {
   font-weight: bold;
   font-size: 18px;
   color: #2c8c27;
 }
-
 #sell-tiles-btn {
   background-color: #2c8c27;
   color: white;
   border: none;
 }
-
 #confirm-sell-btn {
   background-color: #de4ed9;
   color: white;
   border: none;
 }
-
 #cancel-sell-btn {
   background-color: #666;
   color: white;
   border: none;
-}
-
-#game-info-footer {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  width: 100%;
-  background-color: rgba(0, 0, 0, 0.75);
-  color: white;
-  text-align: center;
-  padding: 5px 0;
-  font-size: 14px;
-  z-index: 200; /* Ensure it's on top of other elements */
-}
-
-#game-info-footer p {
-  margin: 0;
-}
-
-#game-info-footer b {
-  color: #ffd000; /* yellow */
-  user-select: all; /* Make it easy to copy the code */
-}
-
-/* This is not the full file. Add this CSS to the end of public/style.css */
-
-#turn-timer {
-  font-size: 0.9em;
-  font-weight: bold;
-  color: #d90429;
-  margin-left: 15px;
-  background-color: #f0f0f0;
-  padding: 5px 8px;
-  border-radius: 5px;
-  border: 1px solid #ccc;
-}
-
-#leave-game-btn {
-  background-color: #b81425; /* A dark, dangerous red */
-  color: white;
-  border: none;
-  margin-top: 15px; /* Give it some space from the log */
-  width: 90%;
-}
-
-#leave-game-btn:hover {
-  background-color: #d90429; /* Brighter red on hover */
-}
-
-#leave-lobby-btn {
-  background-color: #6c757d; /* A neutral gray */
-  color: white;
-  border: none;
-}
-
-#leave-lobby-btn:hover {
-  background-color: #5a6268;
 }

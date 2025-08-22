@@ -12,7 +12,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const gameInfoFooter = document.getElementById("game-info-footer");
   const turnTimerEl = document.getElementById("turn-timer");
   const leaveGameBtn = document.getElementById("leave-game-btn");
-  const leaveLobbyBtn = document.getElementById("leave-lobby-btn"); // --- NEW ---
+  const leaveLobbyBtn = document.getElementById("leave-lobby-btn");
   // ... other DOM elements are unchanged ...
   const createGameBtn = document.getElementById("create-game-btn");
   const joinGameBtn = document.getElementById("join-game-btn");
@@ -41,7 +41,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const placeBidBtn = auctionModal.querySelector("#place-bid-btn");
   const passBidBtn = auctionModal.querySelector("#pass-bid-btn");
 
-  // --- EVENT EMITTERS ---
+  // --- EVENT EMITTERS (UNCHANGED) ---
   createGameBtn.addEventListener("click", () => {
     const playerData = {
       name: document.getElementById("player-name-create").value.trim(),
@@ -130,17 +130,14 @@ document.addEventListener("DOMContentLoaded", () => {
       socket.emit("leaveGame", { gameCode: gameState.gameCode });
     }
   });
-
-  // --- NEW: Leave Lobby Emitter ---
   leaveLobbyBtn.addEventListener("click", () => {
     socket.emit("leaveLobby", { gameCode: gameState.gameCode });
-    // Immediately return to menu for responsiveness
     hideModal(lobbyModal);
     mainMenu.classList.remove("hidden");
     clearReconnectData();
   });
 
-  // --- EVENT LISTENERS ---
+  // --- EVENT LISTENERS (UNCHANGED) ---
   socket.on("connect", () => {
     console.log("Connected to server with ID:", socket.id);
     attemptReconnect();
@@ -164,15 +161,12 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     renderLobby();
   });
-
-  // --- NEW: Lobby Closed Listener ---
   socket.on("lobbyClosed", (message) => {
     alert(message);
     hideModal(lobbyModal);
     mainMenu.classList.remove("hidden");
     clearReconnectData();
   });
-
   socket.on("gameStarted", (initialGameState) => {
     gameState = initialGameState;
     mainMenu.classList.add("hidden");
@@ -213,35 +207,142 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+
     renderPlayersAndPawns();
     playerTurnEl.textContent = `Tour de: ${currentPlayer.name}`;
     playerMoneyEl.textContent = `${me.money}€`;
     diceResultEl.textContent = gameState.lastDiceRoll
       ? `Résultat : ${gameState.lastDiceRoll}`
       : "";
+
     const isMyTurn = currentPlayer.id === myPlayerId;
+    const amIeliminated = me.isEliminated;
+
     rollDiceBtn.disabled =
       !isMyTurn ||
+      amIeliminated ||
       (gameState.turnState !== "start" && gameState.turnState !== "secondRoll");
+
     const sellBtn = document.getElementById("sell-tiles-btn");
     if (sellBtn) {
       sellBtn.style.display =
-        isMyTurn && gameState.turnState === "start" ? "block" : "none";
+        isMyTurn && !amIeliminated && gameState.turnState === "start"
+          ? "block"
+          : "none";
     }
+
     gameLogEl.innerHTML = "";
     (gameState.gameLog || []).forEach((msg) => {
       const p = document.createElement("p");
       p.textContent = msg;
       gameLogEl.prepend(p);
     });
+
     const footerCodeEl = document.getElementById("footer-game-code");
     if (footerCodeEl) footerCodeEl.textContent = gameState.gameCode;
+
     updateTurnTimer();
     renderMachine();
     renderModals();
   }
 
-  // All other functions are unchanged...
+  // --- REWRITTEN renderPlayersAndPawns for PAWN STACKING ---
+  function renderPlayersAndPawns() {
+    playersPanel.innerHTML = "";
+    const existingPawns = new Set();
+    const cellCounts = {}; // Track how many players on each cell
+
+    // First, count players on each cell
+    gameState.players.forEach((p) => {
+      if (!p.isEliminated) {
+        cellCounts[p.position] = (cellCounts[p.position] || 0) + 1;
+      }
+    });
+
+    gameState.players.forEach((player) => {
+      // Create or update player info panel
+      let playerInfoDiv = document.getElementById(`player-info-${player.id}`);
+      if (!playerInfoDiv) {
+        playerInfoDiv = document.createElement("div");
+        playerInfoDiv.id = `player-info-${player.id}`;
+        playerInfoDiv.className = "player-info";
+        playerInfoDiv.innerHTML = `<h4>${player.name}</h4><p>Argent: <span class="money"></span></p><div class="player-tile-collection" id="collection-${player.id}"></div>`;
+        playersPanel.appendChild(playerInfoDiv);
+        createPlayerTileCollection(player);
+      }
+      playerInfoDiv.querySelector(".money").textContent =
+        typeof player.money === "number" ? `${player.money}€` : "???";
+      playerInfoDiv.style.borderColor = player.color;
+
+      // Handle eliminated style
+      if (player.isEliminated) {
+        playerInfoDiv.classList.add("eliminated");
+      } else {
+        playerInfoDiv.classList.remove("eliminated");
+      }
+      updatePlayerTileCollection(player);
+
+      // Handle pawn creation and positioning
+      let pawn = document.getElementById(`pawn-${player.id}`);
+      if (player.isEliminated) {
+        if (pawn) pawn.remove(); // Remove pawn if player is eliminated
+        return; // Skip to next player
+      }
+
+      if (!pawn) {
+        pawn = document.createElement("div");
+        pawn.id = `pawn-${player.id}`;
+        pawn.className = "pawn";
+        board.appendChild(pawn);
+      }
+      pawn.style.backgroundColor = player.color;
+
+      // Calculate dynamic offset
+      const playersOnThisCell = gameState.players.filter(
+        (p) => !p.isEliminated && p.position === player.position
+      );
+      const totalOnCell = playersOnThisCell.length;
+      const myIndexOnCell = playersOnThisCell.findIndex(
+        (p) => p.id === player.id
+      );
+
+      updatePawnPosition(player, pawn, myIndexOnCell, totalOnCell);
+      existingPawns.add(pawn.id);
+    });
+
+    document.querySelectorAll(".pawn").forEach((p) => {
+      if (!existingPawns.has(p.id)) {
+        p.remove();
+      }
+    });
+  }
+
+  // --- REWRITTEN updatePawnPosition for PAWN STACKING ---
+  function updatePawnPosition(player, pawnElement, indexOnCell, totalOnCell) {
+    const cell = document.querySelector(`.cell[data-id='${player.position}']`);
+    if (!cell) return;
+
+    const cellRect = cell.getBoundingClientRect();
+    const boardRect = board.getBoundingClientRect();
+
+    // Base position is the center of the cell
+    let left = cellRect.left - boardRect.left + cellRect.width / 2;
+    let top = cellRect.top - boardRect.top + cellRect.height / 2;
+
+    // Apply offset only if there's more than one pawn
+    if (totalOnCell > 1) {
+      const pawnSize = pawnElement.offsetWidth;
+      const angle = (360 / totalOnCell) * indexOnCell * (Math.PI / 180); // Angle in radians
+      const radius = pawnSize * 0.7; // How far from the center to offset
+      left += Math.cos(angle) * radius;
+      top += Math.sin(angle) * radius;
+    }
+
+    pawnElement.style.left = `${left}px`;
+    pawnElement.style.top = `${top}px`;
+  }
+
+  // ... All other functions are unchanged ...
   function updateTurnTimer() {
     if (turnTimerInterval) {
       clearInterval(turnTimerInterval);
@@ -285,40 +386,6 @@ document.addEventListener("DOMContentLoaded", () => {
     } else {
       startGameLobbyBtn.classList.add("hidden");
     }
-  }
-  function renderPlayersAndPawns() {
-    playersPanel.innerHTML = "";
-    const existingPawns = new Set();
-    gameState.players.forEach((player) => {
-      let playerInfoDiv = document.getElementById(`player-info-${player.id}`);
-      if (!playerInfoDiv) {
-        playerInfoDiv = document.createElement("div");
-        playerInfoDiv.id = `player-info-${player.id}`;
-        playerInfoDiv.className = "player-info";
-        playerInfoDiv.style.borderColor = player.color;
-        playerInfoDiv.innerHTML = `<h4>${player.name}</h4><p>Argent: <span class="money">${player.money}</span></p><div class="player-tile-collection" id="collection-${player.id}"></div>`;
-        playersPanel.appendChild(playerInfoDiv);
-        createPlayerTileCollection(player);
-      }
-      playerInfoDiv.querySelector(".money").textContent =
-        typeof player.money === "number" ? `${player.money}€` : "???";
-      updatePlayerTileCollection(player);
-      let pawn = document.getElementById(`pawn-${player.id}`);
-      if (!pawn) {
-        pawn = document.createElement("div");
-        pawn.id = `pawn-${player.id}`;
-        pawn.className = "pawn";
-        pawn.style.backgroundColor = player.color;
-        board.appendChild(pawn);
-      }
-      updatePawnPosition(player, pawn);
-      existingPawns.add(pawn.id);
-    });
-    document.querySelectorAll(".pawn").forEach((p) => {
-      if (!existingPawns.has(p.id)) {
-        p.remove();
-      }
-    });
   }
   function renderMachine() {
     machineTilesEl.innerHTML = "";
@@ -634,15 +701,6 @@ document.addEventListener("DOMContentLoaded", () => {
         matchingTile.classList.add("owned");
       }
     });
-  }
-  function updatePawnPosition(player, pawnElement) {
-    const cell = document.querySelector(`.cell[data-id='${player.position}']`);
-    if (!cell) return;
-    const cellRect = cell.getBoundingClientRect();
-    const boardRect = board.getBoundingClientRect();
-    const offset = player.id * (pawnElement.offsetWidth + 2);
-    pawnElement.style.top = `${cellRect.top - boardRect.top + 5}px`;
-    pawnElement.style.left = `${cellRect.left - boardRect.left + offset}px`;
   }
   function showModal(modal) {
     modalBackdrop.classList.remove("hidden");

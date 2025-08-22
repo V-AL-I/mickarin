@@ -103,8 +103,9 @@ function createPlayer(id, name, yob, socketId) {
     position: (yob % 12) * 3,
     tiles: [],
     isDisconnected: false,
+    isEliminated: false,
   };
-}
+} // --- ADDED isEliminated flag
 function createAndShuffleTileMachine() {
   let machine = [];
   for (const sign of SIGNS) {
@@ -154,6 +155,7 @@ function broadcastGameState(game, event = "gameStateUpdate") {
 
 // --- 5. SOCKET.IO REAL-TIME LOGIC ---
 io.on("connection", (socket) => {
+  // Unchanged handlers...
   socket.on("createGame", async (playerData) => {
     try {
       const gameCode = nanoid(5).toUpperCase();
@@ -247,11 +249,15 @@ io.on("connection", (socket) => {
       console.error(err);
     }
   });
+
+  // --- MODIFIED rollDice HANDLER for OVERTAKE RULE ---
   socket.on("rollDice", async ({ gameCode }) => {
     const game = await gamesCollection.findOne({ gameCode });
     const player = game.players[game.currentPlayerIndex];
-    if (player.socketId !== socket.id) return;
+    if (player.socketId !== socket.id || player.isEliminated) return;
+
     clearTurnTimer(gameCode);
+
     if (game.turnState === "secondRoll") {
       const diceRoll = Math.floor(Math.random() * 6) + 1;
       game.lastDiceRoll = diceRoll;
@@ -265,19 +271,32 @@ io.on("connection", (socket) => {
       const diceRoll = Math.floor(Math.random() * 6) + 1;
       game.lastDiceRoll = diceRoll;
       logMessage(game, `${player.name} a fait un ${diceRoll}.`);
+
       const oldPosition = player.position;
-      player.position = (oldPosition + diceRoll) % BOARD_SIZE;
+      const newPosition = (oldPosition + diceRoll) % BOARD_SIZE;
+
+      // --- THIS IS THE FIX for OVERTAKE ---
+      // The loop now stops *before* the landing spot (i < diceRoll)
+      const overtakenPlayers = new Set();
+      for (let i = 1; i < diceRoll; i++) {
+        const pathPosition = (oldPosition + i) % BOARD_SIZE;
+        game.players.forEach((otherPlayer) => {
+          if (
+            otherPlayer.id !== player.id &&
+            !otherPlayer.isEliminated &&
+            otherPlayer.position === pathPosition
+          ) {
+            overtakenPlayers.add(otherPlayer);
+          }
+        });
+      }
+      player.position = newPosition;
+
       handleRent(game, player);
-      const victimsWithTiles = Array.from(
-        new Set(
-          Array.from(
-            { length: diceRoll },
-            (_, i) => (oldPosition + i + 1) % BOARD_SIZE
-          ).flatMap((pos) =>
-            game.players.filter((p) => p.id !== player.id && p.position === pos)
-          )
-        )
-      ).filter((v) => v.tiles.length > 0);
+
+      const victims = Array.from(overtakenPlayers);
+      const victimsWithTiles = victims.filter((v) => v.tiles.length > 0);
+
       if (victimsWithTiles.length > 0) {
         logMessage(
           game,
@@ -293,6 +312,12 @@ io.on("connection", (socket) => {
         };
         startTurnTimer(game);
       } else {
+        if (victims.length > 0) {
+          logMessage(
+            game,
+            `${player.name} a dépassé des joueurs, mais personne n'a de tuiles à voler. Le tour continue.`
+          );
+        }
         const cell = { type: player.position % 3 === 1 ? "money" : "color" };
         if (cell.type === "money") {
           player.money += 100;
@@ -312,6 +337,8 @@ io.on("connection", (socket) => {
     await gamesCollection.updateOne({ gameCode }, { $set: game });
     broadcastGameState(game);
   });
+
+  // Unchanged Handlers
   socket.on("stealTile", async ({ gameCode, victimId, tileIndex }) => {
     const game = await gamesCollection.findOne({ gameCode });
     if (game.turnState !== "stealing") return;
@@ -348,7 +375,11 @@ io.on("connection", (socket) => {
   socket.on("takeTiles", async ({ gameCode }) => {
     const game = await gamesCollection.findOne({ gameCode });
     const player = game.players[game.currentPlayerIndex];
-    if (player.socketId !== socket.id || game.turnState !== "machineChoice")
+    if (
+      player.socketId !== socket.id ||
+      player.isEliminated ||
+      game.turnState !== "machineChoice"
+    )
       return;
     clearTurnTimer(gameCode);
     await revealAndAwardTiles(game, player);
@@ -356,7 +387,11 @@ io.on("connection", (socket) => {
   socket.on("relaunchMachine", async ({ gameCode }) => {
     const game = await gamesCollection.findOne({ gameCode });
     const player = game.players[game.currentPlayerIndex];
-    if (player.socketId !== socket.id || game.turnState !== "machineChoice")
+    if (
+      player.socketId !== socket.id ||
+      player.isEliminated ||
+      game.turnState !== "machineChoice"
+    )
       return;
     clearTurnTimer(gameCode);
     logMessage(game, `${player.name} relance le tourniquet.`);
@@ -373,7 +408,12 @@ io.on("connection", (socket) => {
   socket.on("sellTiles", async ({ gameCode, tiles }) => {
     const game = await gamesCollection.findOne({ gameCode });
     const player = game.players[game.currentPlayerIndex];
-    if (player.socketId !== socket.id || game.turnState !== "start") return;
+    if (
+      player.socketId !== socket.id ||
+      player.isEliminated ||
+      game.turnState !== "start"
+    )
+      return;
     if (!tiles || tiles.length === 0) return;
     let moneyGained = 0;
     const soldTilesForMachine = [];
@@ -409,7 +449,7 @@ io.on("connection", (socket) => {
     const auction = game.auctionState;
     const bidderInfo = auction.bidders[auction.currentBidderIndex];
     const player = game.players.find((p) => p.id === bidderInfo.id);
-    if (player.socketId !== socket.id) return;
+    if (player.socketId !== socket.id || player.isEliminated) return;
     clearTurnTimer(gameCode);
     const isInitialBid = !auction.initialBidMade;
     const minBid = isInitialBid ? 100 : auction.highestBid + 100;
@@ -438,7 +478,7 @@ io.on("connection", (socket) => {
     const auction = game.auctionState;
     const bidderInfo = auction.bidders[auction.currentBidderIndex];
     const player = game.players.find((p) => p.id === bidderInfo.id);
-    if (player.socketId !== socket.id) return;
+    if (player.socketId !== socket.id || player.isEliminated) return;
     clearTurnTimer(gameCode);
     if (!auction.initialBidMade) {
       if (player.money >= 100) {
@@ -541,6 +581,132 @@ io.on("connection", (socket) => {
 });
 
 // --- 6. SERVER-SIDE GAME LOGIC FUNCTIONS ---
+function handleElimination(game, player) {
+  if (player.money >= 0) return false; // Player is not eliminated
+
+  logMessage(game, `${player.name} n'a plus d'argent et est éliminé !`);
+  player.isEliminated = true;
+
+  // Return tiles to the machine
+  if (player.tiles.length > 0) {
+    game.tileMachine.push(...player.tiles);
+    player.tiles = [];
+    shuffleMachine(game);
+    logMessage(game, `Ses tuiles retournent dans la machine.`);
+  }
+
+  const activePlayers = game.players.filter((p) => !p.isEliminated);
+  if (activePlayers.length <= 1) {
+    endGame(game, activePlayers[0], "car il est le dernier joueur en lice");
+  }
+  return true; // Player was eliminated
+}
+
+function handleRent(game, currentPlayer) {
+  const currentPosition = currentPlayer.position;
+  const currentSign = getSignForPosition(currentPosition);
+  const landlords = game.players.filter((p) => {
+    if (p.id === currentPlayer.id || p.isDisconnected || p.isEliminated)
+      return false;
+    const ownedSignTiles = p.tiles.filter((tile) => tile.sign === currentSign);
+    return ownedSignTiles.length >= 3;
+  });
+  if (landlords.length === 0) {
+    return;
+  }
+  let finalLandlord = null;
+  if (landlords.length === 1) {
+    finalLandlord = landlords[0];
+  } else {
+    finalLandlord = landlords.find((landlord) =>
+      landlord.tiles.some((tile) => tile.sign === currentSign && tile.isSpecial)
+    );
+  }
+  if (!finalLandlord) {
+    logMessage(
+      game,
+      `Conflit de propriété pour le signe ${currentSign}. Aucun loyer n'est payé.`
+    );
+    return;
+  }
+  const landlordHasSpecial = finalLandlord.tiles.some(
+    (tile) => tile.sign === currentSign && tile.isSpecial
+  );
+  const rentAmount = landlordHasSpecial ? 400 : 200;
+  currentPlayer.money -= rentAmount;
+  finalLandlord.money += rentAmount;
+  logMessage(
+    game,
+    `${currentPlayer.name} paie un loyer de ${rentAmount}€ à ${finalLandlord.name} pour le signe ${currentSign}.`
+  );
+  handleElimination(game, currentPlayer);
+}
+
+async function endAuction(game) {
+  const auction = game.auctionState;
+  if (auction.highestBidderId !== null) {
+    const winner = game.players.find((p) => p.id === auction.highestBidderId);
+    winner.money -= auction.highestBid;
+    logMessage(
+      game,
+      `${winner.name} remporte l'enchère pour ${auction.highestBid}€.`
+    );
+
+    const wasEliminated = handleElimination(game, winner);
+    if (!wasEliminated) {
+      await revealAndAwardTiles(game, winner);
+    } else {
+      // If the winner was eliminated by their own bid, the tiles go back to the machine
+      logMessage(
+        game,
+        `Cependant, ${winner.name} est éliminé par son enchère ! Les tuiles sont défaussées.`
+      );
+      game.tileMachine.push(...game.machineOffer.map((o) => o.tile));
+      shuffleMachine(game);
+      endTurn(game);
+      await gamesCollection.updateOne(
+        { gameCode: game.gameCode },
+        { $set: game }
+      );
+      broadcastGameState(game);
+    }
+  } else {
+    logMessage(game, "Personne n'a enchéri. Les tuiles sont défaussées.");
+    endTurn(game);
+    await gamesCollection.updateOne(
+      { gameCode: game.gameCode },
+      { $set: game }
+    );
+    broadcastGameState(game);
+  }
+}
+
+function endTurn(game) {
+  const activePlayers = game.players.filter((p) => !p.isEliminated);
+  if (activePlayers.length <= 1) {
+    return; // The elimination check already ended the game
+  }
+
+  let nextPlayerIndex = (game.currentPlayerIndex + 1) % game.players.length;
+  // Loop to find the next player who is NOT eliminated
+  while (game.players[nextPlayerIndex].isEliminated) {
+    nextPlayerIndex = (nextPlayerIndex + 1) % game.players.length;
+  }
+  game.currentPlayerIndex = nextPlayerIndex;
+
+  game.turnState = "start";
+  game.status = "in-progress";
+  game.machineOffer = [];
+  game.lastDiceRoll = null;
+  game.stealState = null;
+  logMessage(
+    game,
+    `C'est au tour de ${game.players[game.currentPlayerIndex].name}.`
+  );
+  startTurnTimer(game);
+}
+
+// ... All other functions are unchanged ...
 function startTurnTimer(game) {
   clearTurnTimer(game.gameCode);
   game.turnEndTime = Date.now() + TURN_DURATION;
@@ -620,15 +786,17 @@ async function revealAndAwardTiles(game, winningPlayer) {
       const finalWinner = finalGame.players.find(
         (p) => p.id === winningPlayer.id
       );
-      finalWinner.tiles.push(
-        ...finalGame.machineOffer.map((offer) => offer.tile)
-      );
-      logMessage(
-        finalGame,
-        `${finalWinner.name} a reçu ${finalGame.machineOffer.length} tuile(s).`
-      );
-      if (!checkForWinner(finalGame, finalWinner)) {
-        endTurn(finalGame);
+      if (finalWinner && !finalWinner.isEliminated) {
+        finalWinner.tiles.push(
+          ...finalGame.machineOffer.map((offer) => offer.tile)
+        );
+        logMessage(
+          finalGame,
+          `${finalWinner.name} a reçu ${finalGame.machineOffer.length} tuile(s).`
+        );
+        if (!checkForWinner(finalGame, finalWinner)) {
+          endTurn(finalGame);
+        }
       }
       await gamesCollection.updateOne(
         { gameCode: finalGame.gameCode },
@@ -637,13 +805,15 @@ async function revealAndAwardTiles(game, winningPlayer) {
       broadcastGameState(finalGame);
     }, 1500);
   } else {
-    winningPlayer.tiles.push(...game.machineOffer.map((offer) => offer.tile));
-    logMessage(
-      game,
-      `${winningPlayer.name} a reçu ${game.machineOffer.length} tuile(s).`
-    );
-    if (!checkForWinner(game, winningPlayer)) {
-      endTurn(game);
+    if (winningPlayer && !winningPlayer.isEliminated) {
+      winningPlayer.tiles.push(...game.machineOffer.map((offer) => offer.tile));
+      logMessage(
+        game,
+        `${winningPlayer.name} a reçu ${game.machineOffer.length} tuile(s).`
+      );
+      if (!checkForWinner(game, winningPlayer)) {
+        endTurn(game);
+      }
     }
     await gamesCollection.updateOne(
       { gameCode: game.gameCode },
@@ -651,43 +821,6 @@ async function revealAndAwardTiles(game, winningPlayer) {
     );
     broadcastGameState(game);
   }
-}
-function handleRent(game, currentPlayer) {
-  const currentPosition = currentPlayer.position;
-  const currentSign = getSignForPosition(currentPosition);
-  const landlords = game.players.filter((p) => {
-    if (p.id === currentPlayer.id || p.isDisconnected) return false;
-    const ownedSignTiles = p.tiles.filter((tile) => tile.sign === currentSign);
-    return ownedSignTiles.length >= 3;
-  });
-  if (landlords.length === 0) {
-    return;
-  }
-  let finalLandlord = null;
-  if (landlords.length === 1) {
-    finalLandlord = landlords[0];
-  } else {
-    finalLandlord = landlords.find((landlord) =>
-      landlord.tiles.some((tile) => tile.sign === currentSign && tile.isSpecial)
-    );
-  }
-  if (!finalLandlord) {
-    logMessage(
-      game,
-      `Conflit de propriété pour le signe ${currentSign}. Aucun loyer n'est payé.`
-    );
-    return;
-  }
-  const landlordHasSpecial = finalLandlord.tiles.some(
-    (tile) => tile.sign === currentSign && tile.isSpecial
-  );
-  const rentAmount = landlordHasSpecial ? 400 : 200;
-  currentPlayer.money -= rentAmount;
-  finalLandlord.money += rentAmount;
-  logMessage(
-    game,
-    `${currentPlayer.name} paie un loyer de ${rentAmount}€ à ${finalLandlord.name} pour le signe ${currentSign}.`
-  );
 }
 function drawFromMachine(game) {
   if (game.tileMachine.length === 0) {
@@ -705,7 +838,7 @@ function startAuction(game) {
   game.turnState = "auction";
   game.auctionState = {
     bidders: game.players
-      .filter((p) => !p.isDisconnected)
+      .filter((p) => !p.isDisconnected && !p.isEliminated)
       .map((p) => ({ id: p.id, name: p.name, hasPassed: false })),
     currentBidderIndex: game.players.findIndex(
       (p) => p.id === game.players[game.currentPlayerIndex].id
@@ -725,47 +858,16 @@ function advanceAuction(game) {
     return;
   }
   let nextIndex = (auction.currentBidderIndex + 1) % auction.bidders.length;
-  while (auction.bidders[nextIndex].hasPassed) {
+  while (
+    auction.bidders[nextIndex].hasPassed ||
+    game.players.find((p) => p.id === auction.bidders[nextIndex].id)
+      ?.isEliminated
+  ) {
     nextIndex = (nextIndex + 1) % auction.bidders.length;
   }
   auction.currentBidderIndex = nextIndex;
   startTurnTimer(game);
 }
-async function endAuction(game) {
-  const auction = game.auctionState;
-  if (auction.highestBidderId !== null) {
-    const winner = game.players.find((p) => p.id === auction.highestBidderId);
-    winner.money -= auction.highestBid;
-    logMessage(
-      game,
-      `${winner.name} remporte l'enchère pour ${auction.highestBid}€.`
-    );
-    await revealAndAwardTiles(game, winner);
-  } else {
-    logMessage(game, "Personne n'a enchéri. Les tuiles sont défaussées.");
-    endTurn(game);
-    await gamesCollection.updateOne(
-      { gameCode: game.gameCode },
-      { $set: game }
-    );
-    broadcastGameState(game);
-  }
-}
-
-function endTurn(game) {
-  game.currentPlayerIndex = (game.currentPlayerIndex + 1) % game.players.length;
-  game.turnState = "start";
-  game.status = "in-progress";
-  game.machineOffer = [];
-  game.lastDiceRoll = null;
-  game.stealState = null;
-  logMessage(
-    game,
-    `C'est au tour de ${game.players[game.currentPlayerIndex].name}.`
-  );
-  startTurnTimer(game);
-}
-
 function checkForWinner(game, player) {
   const signCounts = player.tiles.reduce((acc, tile) => {
     acc[tile.sign] = (acc[tile.sign] || 0) + 1;
