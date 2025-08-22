@@ -454,50 +454,37 @@ io.on("connection", (socket) => {
     await gamesCollection.updateOne({ gameCode }, { $set: game });
     broadcastGameState(game);
   });
-
-  // --- NEW: Leave Game Handler ---
   socket.on("leaveGame", async ({ gameCode }) => {
     const game = await gamesCollection.findOne({ gameCode });
     if (!game) return;
-
     const leavingPlayerIndex = game.players.findIndex(
       (p) => p.socketId === socket.id
     );
     if (leavingPlayerIndex === -1) return;
-
     const wasCurrentPlayer = game.currentPlayerIndex === leavingPlayerIndex;
     const leavingPlayer = game.players[leavingPlayerIndex];
     logMessage(game, `${leavingPlayer.name} a quitté la partie.`);
-
-    // Remove player from the game
     game.players.splice(leavingPlayerIndex, 1);
-
     if (game.players.length <= 1) {
       if (game.players.length === 1) {
         endGame(game, game.players[0], "car il est le dernier joueur restant");
       } else {
-        // No one left, game just ends
         endGame(game, { name: "Personne" }, "car tous les joueurs ont quitté");
       }
     } else {
-      // Adjust current player index if needed
       if (leavingPlayerIndex < game.currentPlayerIndex) {
         game.currentPlayerIndex--;
       }
-      // If the leaving player was the current one, the turn automatically passes to the next player
       if (wasCurrentPlayer) {
         endTurn(game);
       } else {
-        // It's still the same player's turn, so just ensure index is valid
         game.currentPlayerIndex %= game.players.length;
-        startTurnTimer(game); // Restart the timer for the current player
+        startTurnTimer(game);
       }
     }
-
     await gamesCollection.updateOne({ gameCode }, { $set: game });
     broadcastGameState(game);
   });
-
   socket.on("disconnect", async () => {
     console.log(`🔌 User disconnected: ${socket.id}`);
     const game = await gamesCollection.findOne({
@@ -520,7 +507,6 @@ io.on("connection", (socket) => {
 });
 
 // --- 6. SERVER-SIDE GAME LOGIC FUNCTIONS ---
-// (All remaining functions are unchanged and should be kept as they are)
 function startTurnTimer(game) {
   clearTurnTimer(game.gameCode);
   game.turnEndTime = Date.now() + TURN_DURATION;
@@ -731,8 +717,11 @@ async function endAuction(game) {
     broadcastGameState(game);
   }
 }
+
+// --- MODIFIED: THE FIX IS HERE ---
 function endTurn(game) {
-  game.currentPlayerIndex = game.currentPlayerIndex % game.players.length;
+  // Correctly increment the player index
+  game.currentPlayerIndex = (game.currentPlayerIndex + 1) % game.players.length;
   game.turnState = "start";
   game.status = "in-progress";
   game.machineOffer = [];
@@ -744,6 +733,7 @@ function endTurn(game) {
   );
   startTurnTimer(game);
 }
+
 function checkForWinner(game, player) {
   const signCounts = player.tiles.reduce((acc, tile) => {
     acc[tile.sign] = (acc[tile.sign] || 0) + 1;
