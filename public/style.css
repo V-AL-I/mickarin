@@ -394,3 +394,13 @@ button:hover {
 #leave-game-btn:hover {
   background-color: #d90429; /* Brighter red on hover */
 }
+
+#leave-lobby-btn {
+  background-color: #6c757d; /* A neutral gray */
+  color: white;
+  border: none;
+}
+
+#leave-lobby-btn:hover {
+  background-color: #5a6268;
+}

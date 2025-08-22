@@ -11,7 +11,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const gameContainer = document.getElementById("game-container");
   const gameInfoFooter = document.getElementById("game-info-footer");
   const turnTimerEl = document.getElementById("turn-timer");
-  const leaveGameBtn = document.getElementById("leave-game-btn"); // --- NEW ---
+  const leaveGameBtn = document.getElementById("leave-game-btn");
+  const leaveLobbyBtn = document.getElementById("leave-lobby-btn"); // --- NEW ---
   // ... other DOM elements are unchanged ...
   const createGameBtn = document.getElementById("create-game-btn");
   const joinGameBtn = document.getElementById("join-game-btn");
@@ -119,20 +120,27 @@ document.addEventListener("DOMContentLoaded", () => {
     clearReconnectData();
     window.location.reload();
   });
-
-  // --- NEW: Leave Game Emitter ---
   leaveGameBtn.addEventListener("click", () => {
     if (
       confirm(
         "Êtes-vous sûr de vouloir quitter la partie ? Cette action est définitive et vous ne pourrez pas revenir."
       )
     ) {
-      clearReconnectData(); // Clear data immediately so they can't auto-reconnect
+      clearReconnectData();
       socket.emit("leaveGame", { gameCode: gameState.gameCode });
     }
   });
 
-  // --- EVENT LISTENERS (UNCHANGED) ---
+  // --- NEW: Leave Lobby Emitter ---
+  leaveLobbyBtn.addEventListener("click", () => {
+    socket.emit("leaveLobby", { gameCode: gameState.gameCode });
+    // Immediately return to menu for responsiveness
+    hideModal(lobbyModal);
+    mainMenu.classList.remove("hidden");
+    clearReconnectData();
+  });
+
+  // --- EVENT LISTENERS ---
   socket.on("connect", () => {
     console.log("Connected to server with ID:", socket.id);
     attemptReconnect();
@@ -156,6 +164,15 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     renderLobby();
   });
+
+  // --- NEW: Lobby Closed Listener ---
+  socket.on("lobbyClosed", (message) => {
+    alert(message);
+    hideModal(lobbyModal);
+    mainMenu.classList.remove("hidden");
+    clearReconnectData();
+  });
+
   socket.on("gameStarted", (initialGameState) => {
     gameState = initialGameState;
     mainMenu.classList.add("hidden");
@@ -186,21 +203,16 @@ document.addEventListener("DOMContentLoaded", () => {
   // --- RENDER FUNCTIONS ---
   function renderGame() {
     if (!gameState || !gameState.players) return;
-
-    // Check if player has been removed
     const me = gameState.players.find((p) => p.id === myPlayerId);
     if (!me) {
       if (gameState.status !== "finished") {
-        // Don't show alert if game ended normally
         alert("Vous avez été retiré de la partie.");
       }
       clearReconnectData();
       window.location.reload();
       return;
     }
-
     const currentPlayer = gameState.players[gameState.currentPlayerIndex];
-
     renderPlayersAndPawns();
     playerTurnEl.textContent = `Tour de: ${currentPlayer.name}`;
     playerMoneyEl.textContent = `${me.money}€`;
@@ -224,13 +236,12 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     const footerCodeEl = document.getElementById("footer-game-code");
     if (footerCodeEl) footerCodeEl.textContent = gameState.gameCode;
-
     updateTurnTimer();
     renderMachine();
     renderModals();
   }
 
-  // ... all other functions are unchanged ...
+  // All other functions are unchanged...
   function updateTurnTimer() {
     if (turnTimerInterval) {
       clearInterval(turnTimerInterval);
